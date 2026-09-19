@@ -16,6 +16,7 @@ from __future__ import annotations
 import time
 from typing import TYPE_CHECKING, Any
 
+from fl_studio_mcp.musical.analysis import CLIP_THRESHOLD
 from fl_studio_mcp.utils.connection import get_connection
 
 if TYPE_CHECKING:
@@ -46,7 +47,9 @@ def sample_peaks(
     Returns:
         success, samples, duration: what was done
         levels: one entry per track with its index, name, peak and a clipping flag
-        transport: the playing and recording state during the window
+        transport: the playing and recording state after the window, plus
+                   played_throughout, which is False when the project stopped part
+                   way through and the levels came from before it did
 
     Raises nothing: a refused sample comes back with "success": False and a reason.
     """
@@ -124,6 +127,7 @@ def sample_peaks(
         readings += 1
 
     after = connection.send_command("transport.getStatus", timeout=5.0)
+    playing_at_end = bool(after.get("is_playing"))
 
     return {
         "success": True,
@@ -134,13 +138,18 @@ def sample_peaks(
                 "track": index,
                 "name": names.get(index),
                 "peak": peak,
-                "clipping": peak > 1.0,
+                "clipping": peak > CLIP_THRESHOLD,
             }
             for index, peak in sorted(peaks.items())
         ],
         "transport": {
             "is_playing": after.get("is_playing"),
             "is_recording": after.get("is_recording"),
+            # The transport is read before the window, because sampling while stopped
+            # is refused, and again after it. A project that stops part way through
+            # would otherwise report "not playing" beside real levels, and a caller
+            # could not tell whether those levels were measured during playback.
+            "played_throughout": playing_at_end,
         },
     }
 
@@ -170,6 +179,8 @@ def register_metering_tools(mcp: FastMCP) -> None:
             levels: each track's loudest peak, where 1.0 is 0 dB and above 1.0 is
                     clipping, plus a clipping flag
             samples: how many readings the peak came from
-            transport: the playing and recording state during the window
+            transport: the playing and recording state after the window, plus
+                       played_throughout, so a project that stopped part way
+                       through does not report real levels beside "not playing"
         """
         return sample_peaks(duration=duration, tracks=tracks)

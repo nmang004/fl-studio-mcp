@@ -36,7 +36,8 @@ def mix_review(sample_seconds: float = DEFAULT_SAMPLE_SECONDS) -> dict[str, Any]
     Returns:
         findings, ordered worst first, and a summary. The level findings are absent
         when the transport was stopped, and the summary says so rather than implying
-        that nothing was found.
+        that nothing was found. levels_partial is present when the project stopped
+        inside the sampling window, which makes the level findings a partial pass.
     """
     snapshot = get_snapshot()
     if not snapshot.get("success"):
@@ -55,6 +56,14 @@ def mix_review(sample_seconds: float = DEFAULT_SAMPLE_SECONDS) -> dict[str, Any]
         # know the level findings are missing rather than absent because the mix is
         # clean.
         reviewed["levels_unavailable"] = sampled.get("error")
+    elif not (sampled.get("transport") or {}).get("played_throughout", True):
+        # The peaks are real, but only the part of the window that played produced
+        # them, so the review is a partial one and must not read as a full pass.
+        reviewed["levels_partial"] = (
+            "The project stopped before the sampling window ended, so the levels "
+            "come from the part of the window that was playing. Start playback "
+            "again and re-run for a full window."
+        )
     return reviewed
 
 
@@ -167,6 +176,8 @@ def register_review_tools(mcp: FastMCP) -> None:
             findings: worst first, each naming the track and the reason
             summary: the counts, and whether levels were part of the review
             levels_unavailable: present when the transport was stopped, saying why
+            levels_partial: present when the project stopped during the window, so
+                            the level findings cover only part of it
         """
         return mix_review(sample_seconds=sample_seconds)
 

@@ -55,6 +55,38 @@ def test_a_review_with_playback_finds_clipping(wired, monkeypatch):
     assert any(f["kind"] == "clipping" for f in result["findings"])
 
 
+def test_a_review_whose_window_stopped_early_says_so(wired):
+    """Non-zero levels beside a stopped transport read as a contradiction.
+
+    The live run hit this: playback ended inside the sampling window, so the review
+    reported real peaks and a transport that was no longer playing. A review has to
+    say the window was cut short, or the levels look like they were measured under
+    playback when only part of them were.
+    """
+    wired.project.is_playing = True
+    wired.modules["mixer"].getTrackPeaks = lambda index, mode: 0.9
+    conn = wired.connection
+    original = conn.send_command
+
+    def stop_after_the_first_read(command, params=None, **kwargs):
+        result = original(command, params, **kwargs)
+        if command == "mixer.getLevels":
+            wired.project.is_playing = False
+        return result
+
+    conn.send_command = stop_after_the_first_read
+    result = review.mix_review(sample_seconds=0.05)
+    assert result["summary"]["levels_sampled"] is True
+    assert "levels_partial" in result
+    assert "stopped" in result["levels_partial"].lower()
+
+
+def test_a_full_window_review_has_no_partial_caveat(wired):
+    wired.project.is_playing = True
+    result = review.mix_review(sample_seconds=0.05)
+    assert "levels_partial" not in result
+
+
 def test_a_review_changes_nothing(wired):
     """It is a diagnostic, so a mutating command in it would be a defect."""
     before = {

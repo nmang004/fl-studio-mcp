@@ -73,6 +73,18 @@ def test_a_single_loud_sample_marks_the_track_as_clipping(playing, monkeypatch):
     assert result["levels"][0]["clipping"] is True
 
 
+def test_a_peak_of_exactly_one_is_not_flagged_as_clipping(playing, monkeypatch):
+    """The sampler and the review must not disagree about where clipping starts.
+
+    1.0 is 0 dB, the ceiling, and `analysis.find_peaks` says so. Two copies of the
+    threshold would drift, so this asserts the same boundary from the sampler side.
+    """
+    playing.modules["mixer"].getTrackPeaks = lambda index, mode: 1.0
+    result = metering.sample_peaks(duration=0.05, interval=0.01, tracks=[1])
+    assert result["levels"][0]["peak"] == pytest.approx(1.0)
+    assert result["levels"][0]["clipping"] is False
+
+
 class FakeClock:
     """A clock that only moves when something sleeps.
 
@@ -145,3 +157,34 @@ def test_the_recording_state_is_reported(playing):
     playing.project.is_recording = True
     result = metering.sample_peaks(duration=0.05, interval=0.01)
     assert result["transport"]["is_recording"] is True
+
+
+def test_a_project_that_stops_mid_window_is_reported_as_such(playing):
+    """The live run reported non-zero peaks beside is_playing False.
+
+    The transport is read before the window and again after it, so a project that
+    stops part way through reports the end state. The levels taken before the stop
+    are real, and without a flag saying the transport stopped, a caller looking at
+    "not playing" beside real levels cannot tell whether the window was measured
+    during playback or the numbers are stale.
+    """
+    conn = playing.connection
+    original = conn.send_command
+
+    def stop_after_the_first_read(command, params=None, **kwargs):
+        result = original(command, params, **kwargs)
+        if command == "mixer.getLevels":
+            playing.project.is_playing = False
+        return result
+
+    conn.send_command = stop_after_the_first_read
+    result = metering.sample_peaks(duration=0.05, interval=0.01)
+    assert result["success"] is True
+    assert result["levels"], "the levels from before the stop are still worth reporting"
+    assert result["transport"]["is_playing"] is False
+    assert result["transport"]["played_throughout"] is False
+
+
+def test_a_project_that_plays_throughout_says_so(playing):
+    result = metering.sample_peaks(duration=0.05, interval=0.01)
+    assert result["transport"]["played_throughout"] is True
