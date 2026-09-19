@@ -75,3 +75,29 @@ def test_the_server_keeps_the_real_limits_in_front_of_the_model():
     assert "Cannot load new VST or AU plugins" in text
     assert "Cannot place clips in the playlist" in text
     assert "Cannot render or export audio" in text
+
+
+def test_every_registered_tool_has_a_readme_row():
+    """A tool nobody documented is a tool nobody will call.
+
+    Checked against the server's own registry, so adding a tool without a row fails
+    here rather than being noticed by a reader months later.
+    """
+    import asyncio
+    import re
+
+    from fl_studio_mcp.server import mcp
+
+    tools = {tool.name for tool in asyncio.run(mcp._list_tools())}
+    documented = set(
+        re.findall(r"^\| `(fl_[a-z_]+)`", (REPO_ROOT / "README.md").read_text(), re.M)
+    )
+    assert not tools - documented, f"no README row for: {sorted(tools - documented)}"
+    assert not documented - tools, f"README row for a missing tool: {sorted(documented - tools)}"
+
+
+def test_the_readme_does_not_deny_the_tempo_write():
+    """It was measured working, so the README must not say otherwise."""
+    text = (REPO_ROOT / "README.md").read_text()
+    assert "Writing tempo is still under investigation" not in text
+    assert "fl_set_tempo" in text

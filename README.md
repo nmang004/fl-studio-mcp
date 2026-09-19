@@ -84,6 +84,38 @@ https://github.com/user-attachments/assets/c2b1a5e7-1640-41fa-82bc-18ca7cbae9e8
 - Undo one or more steps
 - Check how deep the undo history is before or after an edit
 
+## Note Expression
+
+FL's piano roll notes carry sixteen properties, and this server writes all of them. Slides, portamento and per-note filter movement are what make an acid line sound alive, and a tool that writes only pitch, time, length and velocity cannot express them.
+
+| Property | What it does |
+|----------|--------------|
+| `slide` | FL slide note, the 303 glide |
+| `porta` | Portamento |
+| `fcut`, `fres` | Per-note filter cutoff and resonance |
+| `pitchofs` | Pitch offset in units of 10 cents, so 10 is a semitone, and the range is -120 to 120 |
+| `release` | Note release, normalised so 0.5 is the neutral value |
+| `repeats` | Repeat rate, 0 to 14, each value naming a rate |
+| `pan`, `velocity`, `color`, `muted`, `selected` | The rest of the per-note state |
+| `group` | A note group, so a phrase can be removed exactly rather than by matching pitch and time |
+
+`pitchofs` and `repeats` have documented ranges, and FL clamps or truncates rather than complaining, so a value outside them is refused by name instead of landing as something you did not ask for.
+
+Every piano roll tool takes a `channel`, and a failed or mismatched target is refused rather than triggered, so notes cannot land in an unknown piano roll.
+
+## Musical Helpers
+
+These are arithmetic over note dictionaries, so none of them needs FL Studio running, and all of them are covered by tests on a machine with no DAW installed.
+
+| Helper | What it answers |
+|--------|-----------------|
+| Bars and beats | Positions like `3.2.1` or `b7`, converted using the project's real meter |
+| Chord symbols | `Cmaj7`, `F#m7b5`, `Bb13`, and an unknown symbol is refused rather than guessed |
+| Groove | Swing, humanize, quantize, accent and crescendo |
+| MIDI files | Import and export, so notes can leave FL and come back |
+
+Articulation does not survive a MIDI round trip. FL's slide and portamento have no standard MIDI representation, and inventing one would produce files that other programs misread.
+
 ## Limitations And Corrections
 
 ### Cannot Load Plugins
@@ -111,16 +143,27 @@ The parts of the playlist that do exist are covered: `fl_get_playlist_tracks`,
 `fl_set_playlist_track`, `fl_get_markers` and `fl_add_marker` handle track names,
 mute and solo state, and arrangement markers.
 
-### Tempo Is Readable, Writing It Is Not Solved
+### Tempo
 
 `mixer.getCurrentTempo()` reads the project tempo, and it returns thousandths of
-a BPM: measured live, a 130 BPM project reports 130000.
+a BPM: measured live, a 130 BPM project reports 130000. `fl_get_tempo` converts
+that to BPM, and `fl_get_version` reports it alongside the versions.
 
-Writing tempo is still under investigation. There is no dedicated tempo setter in
-the API. `general.processRECEvent` with `midi.REC_Tempo` is the only path, and
-that function's own stub advises trying other API functions first, because that
-part of the API is incomplete, poorly documented and full of hidden bugs. There
-is no tempo write tool yet, and this README does not claim one.
+Writing tempo has no dedicated API. The only path is `general.processRECEvent`
+with `midi.REC_Tempo`, and that function's own stub advises trying other API
+functions first, because that part of the API is incomplete, poorly documented
+and full of hidden bugs.
+
+It was measured working on FL Studio 2026, build 5406: one write with flags 17,
+which is `REC_UpdateValue` combined with `REC_UpdateControl`, set the tempo and an
+independent read agreed, and a restore came back. So `fl_set_tempo` ships, and it
+reads the value back rather than trusting the call, because a write FL accepts and
+does not act on looks exactly like a success from the outside. The full reply is in
+`docs/spikes/2026-09-19-T1-tempo-write.md`.
+
+One flag word, one build and one platform is exactly what that measurement is, so
+if the write ever stops taking, the tool reports it as a failure rather than
+assuming it worked.
 
 ### The API Stubs Are Incomplete
 
@@ -318,6 +361,8 @@ fl-studio-mcp
 | `fl_connect` | Connect/reconnect to FL Studio |
 | `fl_connection_status` | Get connection status |
 | `fl_get_version` | Report the FL Studio version, the scripting API version and the project tempo |
+| `fl_get_tempo` | Read the project tempo in BPM |
+| `fl_set_tempo` | Set the project tempo, and confirm it moved |
 
 ### Transport
 
@@ -451,6 +496,19 @@ against the wrong piano roll.
 | `fl_batch` | Run several commands as one edit that stops at the first failure |
 | `fl_undo` | Undo one or more steps |
 | `fl_undo_history` | Report how deep the undo history is |
+
+
+### Musical Context
+
+| Tool | Description |
+|------|-------------|
+| `fl_get_project_context` | Read the project's key, scale and meter |
+| `fl_write_bassline` | Write a slide-articulated bassline in the project's own key and meter |
+| `fl_describe_project` | Describe the whole project in one call |
+
+The project's key comes from the piano roll's snap to scale setting, which is the key the producer actually chose. If snap to scale is switched off, FL reports no scale at all, and the tool says that rather than naming C major.
+
+`fl_write_bassline` is one call that does the whole job: it reads the key and meter, works out the notes, targets the channel, writes them, and reads them back. The rhythm is a string, `x` for a note and `-` for a rest, so `x-x-xx--` is readable in a tool call in a way a list of floats is not.
 
 ## Example Workflows
 
