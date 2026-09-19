@@ -17,6 +17,7 @@ import json
 import os
 import platform
 import time
+import uuid
 from pathlib import Path
 from typing import Any
 
@@ -170,6 +171,9 @@ class MIDIConnection:
         self._connected = False
         self._error: str | None = None
 
+        # The id of the command currently in flight. Its reply must carry it.
+        self.last_request_id: str | None = None
+
         # File paths for JSON communication
         self._hardware_dir = _get_fl_hardware_dir()
         self._command_file = self._hardware_dir / "mcp_command.json"
@@ -306,10 +310,16 @@ class MIDIConnection:
         """
         self.ensure_connected()
 
+        # Every command carries an id and the controller echoes it. A reply is
+        # only accepted when the id matches, so an abandoned command's answer
+        # cannot be mistaken for the next command's answer.
+        self.last_request_id = uuid.uuid4().hex
+
         # Prepare command
         command = {
             "action": action,
             "params": params or {},
+            "id": self.last_request_id,
         }
 
         # Write command to file
@@ -359,6 +369,12 @@ class MIDIConnection:
             poll_interval = 0.0005 if time.time() < fast_poll_until else 0.02
             response = reader.read()
             if response is not NOT_READY:
+                if not self._is_our_reply(response):
+                    # A reply to something else. Leave it alone and keep waiting
+                    # rather than consuming it as this command's answer.
+                    time.sleep(poll_interval)
+                    continue
+
                 # Clean up response file
                 try:
                     self._response_file.unlink()
@@ -377,6 +393,18 @@ class MIDIConnection:
                 "in MIDI Settings."
             ),
         }
+
+    def _is_our_reply(self, response: dict[str, Any]) -> bool:
+        """Whether a reply belongs to the command in flight.
+
+        A reply with no id at all is accepted. A controller older than this change
+        does not echo one, and refusing those would break every working install in
+        order to guard a case the request lock already covers.
+        """
+        reply_id = response.get("id")
+        if reply_id is None:
+            return True
+        return reply_id == self.last_request_id
 
     def get_status(self) -> dict[str, Any]:
         """Get connection status information."""
