@@ -111,12 +111,18 @@ def test_a_silent_track_something_feeds_is_reported():
 
 
 def test_clipping_comes_before_silence():
-    """A caller reads the top of the list, so the worst belongs there."""
+    """A caller reads the top of the list, so the worst belongs there.
+
+    Track 1 clips and sends into track 2, which never sounds. The first version of
+    this test left track 1 sending only to the master, so track 2 had nothing feeding
+    it and was correctly not reported at all.
+    """
     reviewed = analysis.review_mix(
-        snapshot(track(0), track(1), track(2, sends=[0])),
+        snapshot(track(0), track(1, sends=[0, 2]), track(2, sends=[0])),
         [level(1, 1.3), level(2, 0.0)],
     )
     kinds = [f["kind"] for f in reviewed["findings"]]
+    assert "clipping" in kinds and "silent" in kinds
     assert kinds.index("clipping") < kinds.index("silent")
 
 
