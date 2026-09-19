@@ -364,23 +364,48 @@ def apply(form=None):
     if state_error:
         errors.append(state_error)
 
+    # Per-request fields are echoed from the response that matches the id the
+    # caller asked about, which is the first response when a single request was
+    # queued. Deriving this from the count of responses was wrong: two queued
+    # requests, a context read followed by a write, made every one of these null,
+    # so the caller was told the key and meter were unknown when the script had
+    # answered them. Matching on the id is what the transport already does, and it
+    # works for one request and for several.
+    lead = responses[0] if responses else {}
+
     _write_json(RESPONSE_FILE, {
-        # A single request's id is echoed so the server can match the reply to
-        # the request it sent. With a batch there is no single id to echo.
         "success": not errors,
-        "id": responses[0]["id"] if len(responses) == 1 else None,
-        # The group a single request was assigned, so a caller can refer to the
-        # phrase it just wrote without reading the whole piano roll back.
-        "group": responses[0].get("group") if len(responses) == 1 else None,
-        "group_name": responses[0].get("group_name") if len(responses) == 1 else None,
+        "id": lead.get("id"),
+        "group": lead.get("group"),
+        "group_name": lead.get("group_name"),
         "requests_processed": len(responses),
         "notes_added": sum(response["notes_added"] for response in responses),
-        # The context fields, passed through so one call answers the question.
-        "root_note": responses[0].get("root_note") if len(responses) == 1 else None,
-        "scale_helper": responses[0].get("scale_helper") if len(responses) == 1 else None,
-        "tsnum": responses[0].get("tsnum") if len(responses) == 1 else None,
-        "tsden": responses[0].get("tsden") if len(responses) == 1 else None,
-        "context_ppq": responses[0].get("ppq") if len(responses) == 1 else None,
+        "root_note": lead.get("root_note"),
+        "scale_helper": lead.get("scale_helper"),
+        "tsnum": lead.get("tsnum"),
+        "tsden": lead.get("tsden"),
+        "context_ppq": lead.get("ppq"),
         "notes_deleted": sum(response["notes_deleted"] for response in responses),
+        # Every response, each with its own id, so a caller that queued more than
+        # one request can match the answer it wants instead of reading whichever
+        # happened to be first. The scalars above are the lead response, which is
+        # the whole answer for the usual single-request case.
+        "responses": [
+            {
+                "id": response.get("id"),
+                "action": response.get("action"),
+                "notes_added": response.get("notes_added"),
+                "notes_deleted": response.get("notes_deleted"),
+                "group": response.get("group"),
+                "group_name": response.get("group_name"),
+                "root_note": response.get("root_note"),
+                "scale_helper": response.get("scale_helper"),
+                "tsnum": response.get("tsnum"),
+                "tsden": response.get("tsden"),
+                "ppq": response.get("ppq"),
+                "error": response.get("error"),
+            }
+            for response in responses
+        ],
         "error": "; ".join(errors) if errors else None,
     })

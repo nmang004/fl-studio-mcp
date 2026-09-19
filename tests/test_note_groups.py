@@ -82,3 +82,25 @@ def test_the_reply_names_the_group(fl_env):
     response = reply(fl_env)
     assert response["group"] is not None
     assert response["group_name"] == "bassline"
+
+
+def test_a_second_queued_request_does_not_erase_the_first_ones_fields(fl_env):
+    """Found live: a context read followed by a write made the context fields null.
+
+    The reply echoed those fields only when exactly one response came back, so two
+    queued requests erased all of them and the caller was told the project's key was
+    unknown when the script had answered it.
+    """
+    write(fl_env, [
+        {"action": "get_context", "id": "ctx"},
+        {"action": "add_notes", "id": "notes", "group": True,
+         "notes": [{"midi": 36, "time": 0.0, "duration": 1.0}]},
+    ])
+    response = reply(fl_env)
+    assert response["success"] is True
+    assert response["requests_processed"] == 2
+    by_id = {entry["id"]: entry for entry in response["responses"]}
+    assert by_id["ctx"]["root_note"] == fl_env.project.snap_root_note
+    assert by_id["ctx"]["scale_helper"] == fl_env.project.snap_scale_helper
+    assert by_id["ctx"]["tsnum"] == fl_env.project.tsnum
+    assert by_id["notes"]["group"] is not None, "the write's group was lost too"
