@@ -51,6 +51,33 @@ def test_send_request_reports_a_specific_failure(wired):
     assert result["error"]
 
 
+def test_a_failed_keystroke_can_still_succeed_if_pressed_by_hand(wired, monkeypatch):
+    """The request is on disk, so a manual hotkey press must still work.
+
+    This is the difference between a hard failure and a slower success on a
+    machine where the Accessibility permission has not been granted.
+    """
+    import json as json_module
+
+    def trigger_fails_but_user_presses_the_key(delay: float = 0.0) -> bool:
+        # What a human pressing Cmd+Opt+Y would cause, a moment later.
+        queued = json_module.loads(wired.request_file.read_text())[0]
+        wired.pyscript.apply()
+        wired.piano_roll_response_file.write_text(
+            json_module.dumps({"success": True, "id": queued["id"], "notes_added": 1})
+        )
+        return False
+
+    monkeypatch.setattr(piano_roll, "trigger_fl_studio", trigger_fails_but_user_presses_the_key)
+    result = piano_roll.send_request(
+        {"action": "add_notes", "notes": [{"midi": 60, "time": 0.0, "duration": 1.0}]},
+        timeout=0.05,
+        wait_for_manual_trigger=1.0,
+    )
+    assert result["success"] is True
+    assert result["notes_added"] == 1
+
+
 def test_a_failed_keystroke_is_reported(wired, monkeypatch):
     """The old trigger returned True even when osascript failed."""
     monkeypatch.setattr(piano_roll, "trigger_fl_studio", lambda delay=0: False)

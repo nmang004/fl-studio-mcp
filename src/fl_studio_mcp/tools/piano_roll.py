@@ -80,7 +80,11 @@ def _read_reply(response_file: Path) -> dict | None:
     return parsed
 
 
-def send_request(request: dict, timeout: float = RESPONSE_TIMEOUT) -> dict:
+def send_request(
+    request: dict,
+    timeout: float = RESPONSE_TIMEOUT,
+    wait_for_manual_trigger: float = 0.0,
+) -> dict:
     """Send one request to the piano roll script and return its reply.
 
     Sequence: clear any stale reply, write the request, trigger the script, then
@@ -91,6 +95,11 @@ def send_request(request: dict, timeout: float = RESPONSE_TIMEOUT) -> dict:
         request: The request dict, with an "action" key. An "id" is added when
             the caller did not supply one, so the reply can be matched to it.
         timeout: Seconds to wait for the reply.
+        wait_for_manual_trigger: Seconds to keep waiting when the automatic
+            keystroke could not be delivered. The request is already on disk, so
+            pressing the hotkey by hand still runs it. This turns a hard failure
+            into a slower success, which matters on a machine where the
+            Accessibility permission has not been granted.
 
     Returns:
         The script's reply, or a dict with "success": False and a specific
@@ -110,15 +119,21 @@ def send_request(request: dict, timeout: float = RESPONSE_TIMEOUT) -> dict:
     # previously failed requests replay on the next success.
     request_file.write_text(json.dumps([request], indent=2))
 
+    trigger = get_trigger()
+    trigger_error = None
     if not trigger_fl_studio(delay=0):
-        return {
-            "success": False,
-            "error": (
-                "Could not send the trigger keystroke to FL Studio. Grant "
-                "Accessibility permission to this process, or press "
-                f"{get_trigger().keystroke} in FL Studio with a piano roll focused."
-            ),
-        }
+        trigger_error = trigger.last_error or "the keystroke could not be delivered"
+        if wait_for_manual_trigger <= 0:
+            return {
+                "success": False,
+                "error": (
+                    f"Could not send the trigger keystroke to FL Studio: "
+                    f"{trigger_error} You can also press {trigger.keystroke} in "
+                    "FL Studio with a piano roll focused, and the queued request "
+                    "will run."
+                ),
+            }
+        timeout = max(timeout, wait_for_manual_trigger)
 
     deadline = time.time() + timeout
     while time.time() < deadline:
@@ -127,6 +142,15 @@ def send_request(request: dict, timeout: float = RESPONSE_TIMEOUT) -> dict:
             return reply
         time.sleep(POLL_INTERVAL)
 
+    if trigger_error:
+        return {
+            "success": False,
+            "error": (
+                f"Could not send the trigger keystroke to FL Studio: "
+                f"{trigger_error} The request is queued, so pressing "
+                f"{trigger.keystroke} in FL Studio will still run it."
+            ),
+        }
     return {
         "success": False,
         "error": (
@@ -233,7 +257,10 @@ def register_piano_roll_tools(mcp: FastMCP) -> None:
             if not cleared.get("success"):
                 return f"Failed to clear the piano roll: {cleared.get('error')}"
 
-        result = send_request({"action": "add_notes", "notes": notes})
+        result = send_request(
+            {"action": "add_notes", "notes": notes},
+            wait_for_manual_trigger=RESPONSE_TIMEOUT,
+        )
         if not result.get("success"):
             return f"Notes did not land: {result.get('error')}"
 
@@ -268,12 +295,15 @@ def register_piano_roll_tools(mcp: FastMCP) -> None:
         if not midi_notes:
             raise ValueError("No MIDI notes provided")
 
-        result = send_request({
-            "action": "add_chord",
-            "time": time,
-            "duration": duration,
-            "notes": [{"midi": midi, "velocity": velocity} for midi in midi_notes],
-        })
+        result = send_request(
+            {
+                "action": "add_chord",
+                "time": time,
+                "duration": duration,
+                "notes": [{"midi": midi, "velocity": velocity} for midi in midi_notes],
+            },
+            wait_for_manual_trigger=RESPONSE_TIMEOUT,
+        )
         if not result.get("success"):
             return f"Chord did not land: {result.get('error')}"
 
@@ -299,7 +329,10 @@ def register_piano_roll_tools(mcp: FastMCP) -> None:
         if not notes:
             raise ValueError("No notes specified for deletion")
 
-        result = send_request({"action": "delete_notes", "notes": notes})
+        result = send_request(
+            {"action": "delete_notes", "notes": notes},
+            wait_for_manual_trigger=RESPONSE_TIMEOUT,
+        )
         if not result.get("success"):
             return f"Deletion failed: {result.get('error')}"
 
@@ -318,7 +351,7 @@ def register_piano_roll_tools(mcp: FastMCP) -> None:
         Args:
             auto_trigger: Whether to trigger FL Studio automatically
         """
-        result = send_request({"action": "clear"})
+        result = send_request({"action": "clear"}, wait_for_manual_trigger=RESPONSE_TIMEOUT)
         if not result.get("success"):
             return f"Could not clear the piano roll: {result.get('error')}"
         return f"Cleared {result.get('notes_deleted', 0)} note(s).{_trigger_note()}"

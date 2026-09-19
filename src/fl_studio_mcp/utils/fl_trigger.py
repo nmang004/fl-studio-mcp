@@ -25,6 +25,7 @@ class FLStudioTrigger:
     def __init__(self) -> None:
         self._system = platform.system()
         self._trigger_func: Callable[[], bool] | None = None
+        self.last_error: str = ""
         self._setup_trigger()
 
     def _setup_trigger(self) -> None:
@@ -36,30 +37,65 @@ class FLStudioTrigger:
         else:
             self._trigger_func = None
 
+    def _record_failure(self, detail: str) -> bool:
+        """Note why a trigger failed, and return False.
+
+        The detail matters more than the flag. A bare False sends the user
+        hunting through settings; "not allowed to send keystrokes" points
+        straight at the Accessibility permission.
+        """
+        self.last_error = detail
+        return False
+
     def _trigger_macos(self) -> bool:
-        """Trigger FL Studio on macOS using osascript."""
+        """Trigger FL Studio on macOS using osascript.
+
+        The exit code is the only evidence that the keystroke was delivered.
+        osascript reports success for a script it ran and failure for one it
+        could not, including a denied Accessibility permission:
+
+            System Events got an error: osascript is not allowed to send
+            keystrokes. (1002)
+        """
+        script = '''
+        tell application "FL Studio"
+            activate
+        end tell
+        delay 0.3
+        tell application "System Events"
+            keystroke "y" using {command down, option down}
+        end tell
+        '''
         try:
-            # Use osascript to send keystroke to FL Studio
-            script = '''
-            tell application "FL Studio"
-                activate
-            end tell
-            delay 0.3
-            tell application "System Events"
-                keystroke "y" using {command down, option down}
-            end tell
-            '''
-            subprocess.run(
+            result = subprocess.run(
                 ["osascript", "-e", script],
                 capture_output=True,
                 timeout=10,
             )
-            return True
         except subprocess.TimeoutExpired:
-            return False
-        except Exception:
-            # Fallback to pynput
-            return self._trigger_macos_pynput()
+            return self._record_failure(
+                "osascript timed out after 10s. FL Studio may be showing a dialog."
+            )
+        except Exception as error:
+            # osascript itself is missing or unusable. Try the pynput path.
+            if self._trigger_macos_pynput():
+                return True
+            return self._record_failure(f"osascript could not be run: {error}")
+
+        if result.returncode == 0:
+            return True
+
+        detail = (result.stderr or b"").decode("utf-8", "replace").strip()
+        if "1002" in detail or "not allowed to send keystrokes" in detail:
+            detail = (
+                "System Events refused the keystroke: this process is not allowed "
+                "to send keystrokes (macOS error 1002). Grant Accessibility "
+                "permission to the application running the MCP server, in System "
+                "Settings > Privacy & Security > Accessibility."
+            )
+        elif "FL Studio" in detail:
+            detail = f"macOS could not find FL Studio: {detail}"
+        return self._record_failure(detail or "osascript failed without a message")
 
     def _trigger_macos_pynput(self) -> bool:
         """Trigger FL Studio on macOS using pynput."""
@@ -85,8 +121,8 @@ class FLStudioTrigger:
             keyboard.release(Key.cmd)
 
             return True
-        except Exception:
-            return False
+        except Exception as error:
+            return self._record_failure(f"pynput could not send the keystroke: {error}")
 
     def _focus_fl_studio_windows(self) -> bool:
         """Bring the FL Studio window to the foreground on Windows.
@@ -158,7 +194,10 @@ class FLStudioTrigger:
             from pynput.keyboard import Controller, Key
 
             if not self._focus_fl_studio_windows():
-                return False
+                return self._record_failure(
+                    "Could not find or foreground an FL Studio window, so the "
+                    "keystroke had nowhere to go."
+                )
 
             # Give FL Studio a moment to accept focus before the keystroke.
             time.sleep(0.3)
@@ -174,8 +213,8 @@ class FLStudioTrigger:
             keyboard.release(Key.ctrl)
 
             return True
-        except Exception:
-            return False
+        except Exception as error:
+            return self._record_failure(f"pynput could not send the keystroke: {error}")
 
     def trigger(self, delay: float = TRIGGER_DELAY) -> bool:
         """Trigger FL Studio to execute the Piano Roll script.
@@ -184,10 +223,14 @@ class FLStudioTrigger:
             delay: Seconds to wait after triggering for FL Studio to process.
 
         Returns:
-            True if the trigger was sent successfully, False otherwise.
+            True if the keystroke was delivered, False otherwise. `last_error`
+            carries the reason when it was not.
         """
+        self.last_error = ""
         if self._trigger_func is None:
-            return False
+            return self._record_failure(
+                f"Sending a keystroke is not implemented for {self._system}."
+            )
 
         success = self._trigger_func()
         if success and delay > 0:
