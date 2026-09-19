@@ -99,10 +99,15 @@ class Note:
     time: int = 0
     length: int = 0
     velocity: float = 0.8
-    pan: float = 0.0
+    # pan, fcut, fres and release are normalised by FL, so their neutral value is
+    # 0.5 rather than 0.0. Measured on live FL Studio 2026 by writing a note with
+    # only slide set and reading it back: pan, fcut and fres all returned 0.5, and a
+    # note given release 0.4 kept 0.4. An earlier version of this fake defaulted
+    # these to 0.0, which would have made a test pass on a value FL never produces.
+    pan: float = 0.5
     color: int = 0
-    fcut: float = 0.0
-    fres: float = 0.0
+    fcut: float = 0.5
+    fres: float = 0.5
     group: int = 0
     muted: bool = False
     # Types read from the stubs rather than assumed. flpianoroll/__note.py gives
@@ -111,7 +116,7 @@ class Note:
     # only flags. repeats is an int, 0 to 14, naming a repeat rate.
     pitchofs: int = 0
     porta: bool = False
-    release: float = 0.0
+    release: float = 0.5
     repeats: int = 0
     selected: bool = False
     slide: bool = False

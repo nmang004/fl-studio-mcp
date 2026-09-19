@@ -91,12 +91,21 @@ def test_a_flag_is_coerced_to_a_bool(fl_env):
 
 
 def test_an_unspecified_property_keeps_the_note_default(fl_env):
+    """An untouched note must not be flattened to zero by the writer.
+
+    The neutral values are measured, not assumed: FL normalises pan, fcut, fres and
+    release to 0.5, so writing a zero for them would move a note away from where the
+    user had it rather than leaving it alone.
+    """
     write(fl_env, [{"midi": 60, "time": 0.0, "duration": 1.0}])
     note = fl_env.project.notes[0]
     assert note.slide is False
     assert note.pitchofs == 0
-    assert note.release == 0.0
     assert note.velocity == pytest.approx(0.8), "the Note default, not zero"
+    assert note.release == pytest.approx(0.5), "neutral, not zero"
+    assert note.fcut == pytest.approx(0.5)
+    assert note.fres == pytest.approx(0.5)
+    assert note.pan == pytest.approx(0.5)
 
 
 def test_a_bad_value_is_reported_rather_than_crashing_the_script(fl_env):
