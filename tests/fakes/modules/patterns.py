@@ -52,9 +52,13 @@ def build(project: FakeProject) -> ModuleType:
         return project.current_pattern
 
     def clonePattern(index: int | None = None) -> int:
+        """Copy a pattern. The length comes too, because a copy that is a
+        different length is not a copy."""
         source = project.current_pattern if index is None else index
-        project.pattern(source)
-        project.patterns.append(Pattern(project.pattern(source).name + " copy"))
+        original = project.pattern(source)
+        project.patterns.append(
+            Pattern(original.name + " copy", original.color, original.length)
+        )
         return len(project.patterns) - 1
 
     def getPatternName(index: int) -> str:
