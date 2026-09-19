@@ -65,6 +65,19 @@ class Harness:
 
 
 @pytest.fixture(autouse=True)
+def _library_home(tmp_path_factory, monkeypatch):
+    """Point the library at a temporary root for every test.
+
+    The Phase 6 library holds riffs, presets, snapshots and the session journal under
+    the user's home by default. A test that forgot to move it would write into a real
+    producer's library, or into the journal of the person running the suite, which is
+    the kind of damage that is invisible until it matters. Autouse, so it cannot be
+    forgotten.
+    """
+    monkeypatch.setenv("FL_STUDIO_MCP_HOME", str(tmp_path_factory.mktemp("library")))
+
+
+@pytest.fixture(autouse=True)
 def _restore_sys_modules():
     """Undo every sys.modules change a test makes.
 
