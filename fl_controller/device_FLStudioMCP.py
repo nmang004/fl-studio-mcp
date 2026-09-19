@@ -25,6 +25,7 @@ from pathlib import Path
 
 # FL Studio API modules (available when running inside FL Studio)
 import channels
+import device
 import general
 import mixer
 import plugins
@@ -156,6 +157,8 @@ def dispatch_command(action: str, params: dict) -> dict:
     # System commands
     if action == "system.getInfo":
         return handle_system_get_info()
+    elif action == "system.sysExProbe":
+        return handle_system_sysex_probe(params)
 
     # Transport commands
     elif action == "transport.start":
@@ -268,6 +271,69 @@ def dispatch_command(action: str, params: dict) -> dict:
 # =============================================================================
 # System Handlers
 # =============================================================================
+
+
+def handle_system_sysex_probe(params: dict) -> dict:
+    """Emit a SysEx message back to the host, for research spike T4.
+
+    Answers the one question the stubs cannot: does a SysEx message written by
+    `device.midiOutSysex` actually leave FL Studio, and if so, through which
+    port?
+
+    The reply is a JSON payload with its bytes shifted clear of the SysEx
+    reserved values (0xF0 to 0xF7) and the realtime range (0xF8 and above), so no
+    byte in the body can be mistaken for a message boundary. Only ASCII digits
+    and separators are used, so a plain decode is enough on the receiving side.
+
+    Note that `device.midiOutSysex` sends to the output interface linked to this
+    controller. The caller is responsible for enabling one in FL Studio's MIDI
+    Settings; without one there is nothing to send to and the message is lost
+    silently, which is exactly the failure this probe is meant to distinguish.
+    """
+    payload = {
+        "api": None,
+        "fl": None,
+        "assigned": None,
+        "port": None,
+        "echo": params.get("echo"),
+    }
+    try:
+        payload["api"] = general.getVersion()
+    except Exception:
+        pass
+    try:
+        payload["fl"] = ui.getProgTitle()
+    except Exception:
+        pass
+    try:
+        payload["assigned"] = device.isAssigned()
+    except Exception:
+        pass
+    try:
+        payload["port"] = device.getPortNumber()
+    except Exception:
+        pass
+
+    try:
+        text = json.dumps(payload)
+        body = ",".join(str(ord(ch) + 0x38) for ch in text)
+        device.midiOutSysex(bytes(0xF0) + body.encode("ascii") + bytes(0xF7))
+        sent_sysex = True
+    except Exception as e:
+        print(f"Error sending sysex probe: {e}")
+        sent_sysex = False
+
+    # Also send a plain note message. If this arrives but the SysEx does not,
+    # the problem is SysEx-specific rather than a missing output interface.
+    sent_note = False
+    try:
+        device.midiOutMsg(0x9, 0, 36, 100)
+        device.midiOutMsg(0x8, 0, 36, 0)
+        sent_note = True
+    except Exception as e:
+        print(f"Error sending note probe: {e}")
+
+    return {"sent": sent_sysex, "sent_note": sent_note, "payload": payload}
 
 
 def _safe_to_edit():
