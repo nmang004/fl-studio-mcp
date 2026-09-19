@@ -21,19 +21,19 @@ if TYPE_CHECKING:
     from fastmcp import FastMCP
 
 
-def piano_roll_script() -> Any:
-    """The piano roll script, loaded so its context can be read.
+def read_context(request_timeout: float = 5.0) -> dict[str, Any]:
+    """Read the key and meter by asking the piano roll script.
 
-    Kept behind a function so a test can substitute one, and so the import cost is
-    only paid when context is actually wanted.
+    This goes through the real transport rather than loading the script directly.
+    An earlier version imported the script with a helper from the test suite, which
+    meant the shipped code could not run outside a test at all: `from tests.helpers`
+    raised ModuleNotFoundError the first time it was called for real.
     """
-    from tests.helpers import load_pyscript
-
-    class _NoPatch:
-        def setitem(self, *args, **kwargs):
-            pass
-
-    return load_pyscript(_NoPatch())
+    return piano_roll.send_request(
+        {"action": "get_context", "id": CONTEXT_REQUEST_ID},
+        timeout=request_timeout,
+        wait_for_manual_trigger=request_timeout,
+    )
 
 
 def get_project_context() -> dict[str, Any]:
@@ -44,14 +44,8 @@ def get_project_context() -> dict[str, Any]:
         time_signature, beats_per_bar: the project meter
         ppq: ticks per quarter note, from the controller
     """
-    from fl_studio_mcp.utils.paths import piano_roll_scripts_dir
-
-    scripts = piano_roll_scripts_dir()
-    context = score.read_context(
-        piano_roll_script(),
-        scripts / "mcp_response.json",
-        scripts / "mcp_request.json",
-    )
+    reply = read_context()
+    context = score.context_from_reply(reply)
 
     # The controller owns the PPQ, because a caller may want it without having run
     # a piano roll script at all.
@@ -135,6 +129,9 @@ def write_bassline(
         "notes_read_back": result.get("verified_notes"),
         "notes": notes,
     }
+
+
+CONTEXT_REQUEST_ID = "project-context"
 
 
 def register_score_tools(mcp: FastMCP) -> None:

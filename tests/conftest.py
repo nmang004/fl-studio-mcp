@@ -157,3 +157,37 @@ def fl_env(fl_settings, monkeypatch):
         yield harness
     finally:
         fakes.uninstall()
+
+
+@pytest.fixture
+def piano_roll_wired(fl_env, monkeypatch):
+    """The piano roll tools driving the in-process controller.
+
+    Every tool that writes notes needs the same four things wired: a connection
+    bound to the harness files, the scripts directory pointed at the harness, a
+    trigger that runs the script in process, and the musical context going through
+    the same path. Doing that per test file was four lines of setup repeated, and
+    one test file had it subtly wrong.
+    """
+    from fl_studio_mcp.tools import piano_roll
+    from fl_studio_mcp.tools import score as score_tool
+    from fl_studio_mcp.utils.midi_connection import MIDIConnection
+
+    conn = MIDIConnection()
+    conn._command_file = fl_env.command_file
+    conn._response_file = fl_env.response_file
+    conn._port = fl_env.midi_port
+    conn._port_name = fl_env.midi_port.name
+    conn._connected = True
+
+    monkeypatch.setattr(piano_roll, "get_connection", lambda: conn, raising=False)
+    monkeypatch.setattr(piano_roll, "piano_roll_scripts_dir", lambda: fl_env.piano_roll_dir)
+    monkeypatch.setattr(score_tool, "get_connection", lambda: conn, raising=False)
+
+    def fake_trigger(delay: float = 0.0) -> bool:
+        fl_env.pyscript.apply()
+        return True
+
+    monkeypatch.setattr(piano_roll, "trigger_fl_studio", fake_trigger)
+    fl_env.connection = conn
+    return fl_env

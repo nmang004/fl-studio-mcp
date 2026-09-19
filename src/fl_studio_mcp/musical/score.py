@@ -108,6 +108,22 @@ def key_name(root_note: int, helper: str) -> str:
     return f"{NOTE_NAMES[root]} {quality}"
 
 
+def context_from_reply(reply: dict[str, Any]) -> dict[str, Any]:
+    """The key, scale and meter from a get_context reply.
+
+    The script echoes every response keyed by id, so the context is looked up by the
+    id it was asked for rather than taken from whichever response came first. A
+    context read queued alongside a write otherwise returns the write's answer, which
+    carries no key at all.
+    """
+    entry = reply
+    for candidate in reply.get("responses") or []:
+        if candidate.get("root_note") is not None or candidate.get("scale_helper"):
+            entry = candidate
+            break
+    return _context_from_fields(entry)
+
+
 def read_context(
     piano_roll_script: Any, response_file: Any = None, request_file: Any = None
 ) -> dict[str, Any]:
@@ -138,7 +154,11 @@ def read_context(
 
     piano_roll_script.apply()
     reply = _last_reply(response_file)
+    return context_from_reply(reply)
 
+
+def _context_from_fields(reply: dict[str, Any]) -> dict[str, Any]:
+    """Build the context from a reply that carries the raw fields."""
     helper = reply.get("scale_helper")
     root = reply.get("root_note")
     tsnum = reply.get("tsnum") or 4
@@ -149,7 +169,12 @@ def read_context(
         "scale_helper": helper,
         "tsnum": tsnum,
         "tsden": tsden,
-        "ppq": reply.get("context_ppq"),
+        # The two reply shapes name this differently: the top level field carries
+        # the context prefix to avoid colliding with the transport's own fields,
+        # while a per response entry is just ppq. Reading only one of them left the
+        # value None depending on which shape arrived.
+        "ppq": reply.get("context_ppq") if reply.get("context_ppq") is not None
+        else reply.get("ppq"),
         "time_signature": f"{tsnum}/{tsden}",
         "beats_per_bar": _beats_per_bar(tsnum, tsden),
     }

@@ -90,24 +90,33 @@ def test_a_scale_with_no_notes_is_refused(fl_env):
         score.scale_degrees(",".join(["1"] * 12))
 
 
-def test_the_tool_reports_the_context(fl_env, monkeypatch):
+def test_the_tool_reports_the_context(piano_roll_wired):
+    """The whole path: transport, script, reply, and the PPQ from the controller."""
     from fl_studio_mcp.tools import score as score_tool
 
-    read(fl_env)
-    monkeypatch.setattr(score_tool, "piano_roll_script", lambda: fl_env.pyscript)
-    monkeypatch.setattr(score_tool, "get_connection", lambda: _StubConnection(fl_env))
+    fl_env = piano_roll_wired
+    fl_env.project.ppq = 96
     context = score_tool.get_project_context()
     assert context["key"] == "C major"
     assert context["ppq"] == 96
     assert context["beats_per_bar"] == 4
 
 
-class _StubConnection:
-    """The controller side, for the PPQ only."""
+def test_the_context_is_found_even_when_another_request_is_queued(piano_roll_wired):
+    """The reply carries every response, and the context is looked up by its id.
 
-    def __init__(self, fl_env):
-        self._fl_env = fl_env
+    Found live: a context read queued alongside a write returned null for the key,
+    because the reply echoed whichever response came first.
+    """
+    from fl_studio_mcp.musical import score as score_module
 
-    def send_command(self, action, params=None, timeout=2.0):
-        assert action == "system.getPpq", action
-        return {"success": True, "ppq": self._fl_env.project.ppq}
+    reply = {
+        "responses": [
+            {"id": "a-write", "notes_added": 2},
+            {"id": "project-context", "root_note": 9, "scale_helper": A_MINOR,
+             "tsnum": 3, "tsden": 4, "ppq": 96},
+        ]
+    }
+    context = score_module.context_from_reply(reply)
+    assert context["key"] == "A minor"
+    assert context["time_signature"] == "3/4"

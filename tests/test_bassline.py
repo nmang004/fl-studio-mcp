@@ -101,27 +101,11 @@ def test_a_chord_symbol_gives_the_root():
     assert notes[0]["midi"] == 45  # A in octave 2, where C is 36
 
 
-def test_the_tool_writes_in_the_project_key(fl_env, monkeypatch):
+def test_the_tool_writes_in_the_project_key(piano_roll_wired):
     """The exit criterion: one call, the project's key, verified by read-back."""
     from fl_studio_mcp.tools import score as score_tool
-    from fl_studio_mcp.utils.midi_connection import MIDIConnection
 
-    conn = MIDIConnection()
-    conn._command_file = fl_env.command_file
-    conn._response_file = fl_env.response_file
-    conn._port = fl_env.midi_port
-    conn._connected = True
-
-    monkeypatch.setattr(score_tool, "get_connection", lambda: conn, raising=False)
-    monkeypatch.setattr(score_tool, "piano_roll_script", lambda: fl_env.pyscript)
-    monkeypatch.setattr(
-        score_tool.piano_roll, "piano_roll_scripts_dir", lambda: fl_env.piano_roll_dir
-    )
-    monkeypatch.setattr(
-        score_tool.piano_roll,
-        "trigger_fl_studio",
-        lambda delay=0: (fl_env.pyscript.apply(), True)[1],
-    )
+    fl_env = piano_roll_wired
 
     # A minor project, and the key has to come through rather than C major.
     fl_env.project.snap_root_note = 9
@@ -147,27 +131,10 @@ def test_the_tool_writes_in_the_project_key(fl_env, monkeypatch):
     assert all(note.slide for note in fl_env.project.notes)
 
 
-def test_the_tool_honours_a_three_four_project(fl_env, monkeypatch):
+def test_the_tool_honours_a_three_four_project(piano_roll_wired):
     from fl_studio_mcp.tools import score as score_tool
-    from fl_studio_mcp.utils.midi_connection import MIDIConnection
 
-    conn = MIDIConnection()
-    conn._command_file = fl_env.command_file
-    conn._response_file = fl_env.response_file
-    conn._port = fl_env.midi_port
-    conn._connected = True
-
-    monkeypatch.setattr(score_tool, "get_connection", lambda: conn, raising=False)
-    monkeypatch.setattr(score_tool, "piano_roll_script", lambda: fl_env.pyscript)
-    monkeypatch.setattr(
-        score_tool.piano_roll, "piano_roll_scripts_dir", lambda: fl_env.piano_roll_dir
-    )
-    monkeypatch.setattr(
-        score_tool.piano_roll,
-        "trigger_fl_studio",
-        lambda delay=0: (fl_env.pyscript.apply(), True)[1],
-    )
-
+    fl_env = piano_roll_wired
     fl_env.project.tsnum = 3
     fl_env.project.tsden = 4
 
@@ -179,22 +146,10 @@ def test_the_tool_honours_a_three_four_project(fl_env, monkeypatch):
     assert max(n["time"] for n in result["notes"]) == pytest.approx(5.0)
 
 
-def test_a_channel_that_does_not_exist_is_refused(fl_env, monkeypatch):
+def test_a_channel_that_does_not_exist_is_refused(piano_roll_wired):
     from fl_studio_mcp.tools import score as score_tool
-    from fl_studio_mcp.utils.midi_connection import MIDIConnection
 
-    conn = MIDIConnection()
-    conn._command_file = fl_env.command_file
-    conn._response_file = fl_env.response_file
-    conn._port = fl_env.midi_port
-    conn._connected = True
-
-    monkeypatch.setattr(score_tool, "get_connection", lambda: conn, raising=False)
-    monkeypatch.setattr(score_tool, "piano_roll_script", lambda: fl_env.pyscript)
-    monkeypatch.setattr(
-        score_tool.piano_roll, "piano_roll_scripts_dir", lambda: fl_env.piano_roll_dir
-    )
-
+    fl_env = piano_roll_wired
     result = score_tool.write_bassline(channel=99)
     assert result["success"] is False
     assert "99" in result["error"]
