@@ -3,8 +3,10 @@
 This fork rebuilds the upstream server into a reliable, FL-native music production
 tool. It is the spec that per-phase implementation plans argue from.
 
-**Status:** Phase 0 not started. Three Phase 1 items landed early, out of order,
-because they blocked the test environment: see "Verified against live FL Studio".
+**Status:** Phases 0 through 5 are done, verified live where the phase called for it.
+The per-phase plans in `docs/plans/` record what each one delivered and which
+assumptions the live environment corrected. Phase 6 is not started, and the tabled work
+below stays tabled.
 
 **Source of truth for the FL Studio API:** the official stubs package
 (`fl-studio-api-stubs>=37.0`, already a dev dependency). Every API claim in this

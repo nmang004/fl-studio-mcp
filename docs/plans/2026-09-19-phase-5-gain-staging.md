@@ -319,22 +319,50 @@ git commit -m "Add the mix review and gain staging tools"
 
 ## Phase 5 exit criteria
 
-- [ ] `fl_mix_review()` returns actionable findings on a real project, verified live.
-- [ ] Sampling is refused while the transport is stopped, so a review can never
-      report a silent mix as a routing problem.
-- [ ] The findings are ordered by severity and name the track.
-- [ ] `fl_gain_staging(apply=False)` reports moves without making them, and a test
+- [x] `fl_mix_review()` returns actionable findings on a real project, verified live.
+      One problem finding, a clipping Master, plus two informational findings that are
+      both correct for that project.
+- [x] Sampling is refused while the transport is stopped, so a review can never
+      report a silent mix as a routing problem. Verified live, and it is the first
+      thing the live run did.
+- [x] The findings are ordered by severity and name the track.
+- [x] `fl_gain_staging(apply=False)` reports moves without making them, and a test
       asserts the project is untouched.
-- [ ] `pytest` green and `ruff check .` clean with no FL Studio running.
-- [ ] The README says what a peak hold is not, so nobody reads it as loudness.
-- [ ] `docs/SMOKE_TEST.md` records the live run and says the applying path was not
+- [x] `pytest` green and `ruff check .` clean with no FL Studio running. 653 tests.
+- [x] The README says what a peak hold is not, so nobody reads it as loudness.
+- [x] `docs/SMOKE_TEST.md` records the live run and says the applying path was not
       run against the user's project.
+
+### What the live run corrected
+
+| Assumption | What the live run showed |
+| --- | --- |
+| Two decimals are enough to show a peak over the ceiling | A peak of 1.004 prints as 1.00, which is the exact value this code calls not clipping, so the finding argued with its own threshold |
+| The transport state read after the window describes the window | 60 readings of real audio came back beside `is_playing: false`, because playback ended inside the window |
+| The sampler's clipping flag and the review's threshold are separate decisions | They are one boundary. Two copies drift, so the sampler now imports `CLIP_THRESHOLD` |
+
+One of these was catchable without FL. The rounding is arithmetic, and a unit test
+with a peak of 1.004 would have caught it, which is worth stating because the other
+two needed the live run: nothing about a fake project tells you when a real transport
+stops, or what a real peak holds at. The phase's own lesson stands, that a fake is
+written from the same understanding as the code and cannot correct that
+understanding. What this run adds is that a message is part of the measurement. Both
+live defects were cases where the numbers were right and the sentence describing them
+was wrong, and the sentence is what a producer reads.
 
 ## What Phase 5 deliberately does not do
 
 - It does not measure loudness, frequency content or stereo width. Those need the
   audio, which means the tabled loopback capture, and the roadmap tabled it on
   purpose. Peak level is a real measurement and it is not a substitute.
+- It does not read EQ. The roadmap's Phase 5 bullet lists EQ among what the review
+  reads, and this plan narrowed that away: a boost or a cut is a mixing decision, and
+  nothing about a band's settings says whether it is the wrong one. Reading EQ would
+  produce findings that fire on every real mix, which is the same as no findings.
+- It does not report duplicate routing. Two tracks sending to the same bus is
+  ordinary practice rather than a defect, so the finding would need a definition of
+  duplication that does not flag every drum bus in existence. The dead end that can be
+  identified is already reported: a send into a track that never sounds.
 - It does not run a gain staging pass on the user's open project without them asking.
 - It does not chase automation. `mixer.automateEvent` is spike T3 and marked HELP
   WANTED upstream.

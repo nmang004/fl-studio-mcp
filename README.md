@@ -112,11 +112,13 @@ Every piano roll tool takes a `channel`, and a failed or mismatched target is re
 
 The review reports two kinds of thing. The settings findings need no playback: a track with no sends, every fader left at FL's own default of 0.8, everything panned centre. The level findings need the project to be playing: what clips, and what is routed into a track that never sounds.
 
+It does not read EQ, and it does not flag two tracks that send to the same bus. A cut and a shared bus are both ordinary mixing, so neither is a defect a settings read can identify. It also does not judge balance: two tracks at the same fader value are reported as untouched, not as wrong.
+
 **A peak hold is not a loudness measurement.** It finds clipping and silence. It cannot tell you that a track is too loud in the sense a listener means, because that needs the audio, and capturing audio is not supported. Peak and loudness disagree in both directions: a spiky drum bus peaks high and sounds quiet, a compressed pad peaks low and sounds loud. Anything that claims to match the loudness of two tracks from peak levels is wrong.
 
 `fl_gain_staging` only trims down, and only reports until you pass `apply=True`. Raising a quiet track would fight the balance you already set, which is your decision rather than a peak reading's. When it does apply, the whole pass is one `fl_batch`, so one undo reverses it.
 
-Sampling while the transport is stopped is refused by both tools. Every reading would be zero, and zero is indistinguishable from a track routed nowhere, so a review would report a silent mix as a routing problem with complete confidence.
+Sampling while the transport is stopped is refused by both tools. Every reading would be zero, and zero is indistinguishable from a track routed nowhere, so a review would report a silent mix as a routing problem with complete confidence. A project that stops inside the sampling window is reported as a partial pass, so those levels cannot be read as a full one.
 
 ## Musical Helpers
 

@@ -108,6 +108,42 @@ Ask before running these, and restore the project afterwards.
       regression in the request lock, which turns cross-talk into either wrong
       answers or empty ones.
 
+## Mix review and gain staging
+
+The findings are arithmetic over a peak hold, so a test can check the arithmetic. No
+test can check that the arithmetic agrees with the record. That is this list, and it
+is the only place the two are compared.
+
+- [ ] Start playback, run `fl_mix_review()`, and confirm `levels_sampled` is true and
+      the Master peak is not zero. Catches a review reporting on a mix it never
+      measured.
+- [ ] Compare the reported Master peak against FL's own master meter at that moment.
+      They should agree within a few percent. Catches a peak read from the wrong
+      track, which the fake cannot see because it answers for any index it is given.
+- [ ] Decide by ear which element is loudest before reading the findings, then check
+      the review's loudest track is that one. This is the item the phase exists for: a
+      peak hold is a real measurement, but it only helps if it matches what is heard.
+- [ ] Mute a track you can hear is sounding, re-run, and confirm it drops out of the
+      loudest few. Then confirm no track you can plainly hear is reported as never
+      sounding.
+- [ ] Confirm a track that is muted and silent is not reported as never sounding.
+      The reason is known already, so reporting it is noise.
+- [ ] Confirm every clipping finding names a peak above 1.000 and a dB overshoot that
+      matches it. A message reading "peaked at 1.00, which is over 0 dB" contradicts
+      the rule that 1.0 is the ceiling, and the message is the thing a producer acts
+      on.
+- [ ] Confirm a fader left at FL's default earns an informational note rather than a
+      problem, so the clipping finding stays at the top of the list.
+- [ ] Note a fader's value, run `fl_mix_review()`, then confirm the fader did not
+      move. Catches a diagnostic that is not read-only.
+- [ ] With playback running, run `fl_gain_staging()` without `apply` and confirm the
+      moves are reported and no fader moved in FL's mixer.
+- [ ] Only on a scratch project, run `fl_gain_staging(apply=True)` and confirm the
+      named faders moved down by the reported amounts, that nothing else moved, and
+      that one Ctrl+Z reverses the whole pass. Do not run this on a project whose
+      balance you care about. It has deliberately not been run against a real project
+      in this repo.
+
 ## Piano roll path
 
 This is the only path that nothing but a human can test: it needs the keystroke,
@@ -173,6 +209,50 @@ Both must be covered before a release. Windows needs the extra step.
 Note the date, the FL Studio version, the API version, and any item that failed,
 in the commit message or the pull request description. A smoke test with no record
 is a rumour.
+
+### 2026-09-19, Phase 5
+
+FL Studio 2026, Producer Edition v26.1.6 build 5406, API version 45, macOS 26,
+Apple silicon. The project was left as found: nothing was moved, muted or renamed.
+
+Passed, read-only, with the user's playback running:
+
+- The refusal: with the transport stopped, `fl_mix_review` reported
+  `levels_sampled: false` and said the transport was stopped, rather than reporting a
+  silent mix. That is the behaviour the whole phase is built on.
+- The done condition, one problem finding from a real project. Master was clipping.
+  The other two findings were informational and correct for this project: every insert
+  at FL's default fader, and nothing panned.
+- A second pass printed the raw peaks unrounded: Master 0.892, Insert 2 0.860,
+  Insert 1 0.819, Insert 3 0.485, from 60 readings over three seconds. The Master is
+  therefore near the ceiling but not over it in general, which is exactly why the
+  clipping in the first pass was intermittent and worth catching.
+- 18 tracks reviewed in one round trip, which is the Phase 5 reason for the batched
+  snapshot: the same review with a call per track would be 18 triggers.
+
+Found during this run, and since fixed:
+
+- The clipping message contradicted its own threshold. A peak of 1.004 printed with
+  two decimals as "peaked at 1.00, which is over 0 dB, so it is clipping", and 1.00 is
+  the exact value the tool says is not clipping. The peak is now printed to three
+  decimals with the dB overshoot. The real value from this run is lost to the
+  rounding, so it is recorded here as above 1.0 rather than as a number.
+- 60 readings of real audio were reported beside `is_playing: false`, because the
+  transport is read after the sampling window and playback had finished inside it.
+  The sampler now reports `played_throughout`, and the review surfaces a window that
+  was cut short as `levels_partial`, so a partial pass cannot read as a full one.
+- The sampler carried its own copy of the clipping threshold. It now imports
+  `CLIP_THRESHOLD` from the analysis module, because two copies of that boundary
+  drift and the sampler's flag has to agree with the review's rule.
+
+Not run, on purpose:
+
+- `fl_gain_staging(apply=True)` against this project. It moves faders, and the phase
+  says not to do that to someone's work unasked. The reporting form was exercised,
+  and the applying form is covered by tests against the fake only, so the applying
+  path has never touched a real project.
+- Windows, and Windows with a OneDrive-redirected Documents folder. No machine.
+- The automatic piano roll keystroke, still blocked by macOS Accessibility error 1002.
 
 ### 2026-09-19, Phase 4
 
