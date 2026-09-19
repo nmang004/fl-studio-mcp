@@ -201,6 +201,12 @@ def _route_command(action: str, params: dict) -> dict:
     elif action == "system.batch":
         return handle_system_batch(params)
 
+    # EQ commands
+    elif action == "mixer.getEq":
+        return handle_mixer_get_eq(params)
+    elif action == "mixer.setEqBands":
+        return handle_mixer_set_eq_bands(params)
+
     # Pattern commands
     elif action == "patterns.getAll":
         return handle_patterns_get_all()
@@ -531,6 +537,7 @@ MUTATING_ACTIONS = frozenset([
     "general.undoUpDown",
     "mixer.armTrack",
     "mixer.muteTrack",
+    "mixer.setEqBands",
     "mixer.setStereoSep",
     "mixer.setTrackColor",
     "mixer.setTrackName",
@@ -803,6 +810,110 @@ def handle_transport_set_playback_speed(params: dict) -> dict:
 # =============================================================================
 # Mixer Handlers
 # =============================================================================
+
+
+# =============================================================================
+# EQ Handlers
+# =============================================================================
+
+
+# From the stubs: mixer.getEqFrequency and getEqGain take a mode selecting the
+# form of the answer. The plain value is what a caller reasoning about the shape
+# of a mix wants, and it is the default.
+EQ_MODE_DEFAULT = 0
+
+
+def _eq_band(track: int, band: int) -> dict:
+    """One band's settings, with each property read guarded.
+
+    An unreadable property reports None rather than losing the whole band, so a
+    partly readable EQ is still useful.
+    """
+    entry = {"band": band}
+    for key, reader in (
+        ("gain", lambda: mixer.getEqGain(track, band, EQ_MODE_DEFAULT)),
+        ("frequency", lambda: mixer.getEqFrequency(track, band, EQ_MODE_DEFAULT)),
+        ("bandwidth", lambda: mixer.getEqBandwidth(track, band)),
+    ):
+        try:
+            entry[key] = reader()
+        except Exception:
+            entry[key] = None
+    return entry
+
+
+def _eq_snapshot(track: int) -> dict:
+    """The whole EQ for a track, which is one round trip rather than twenty one."""
+    count = mixer.getEqBandCount()
+    return {
+        "track": track,
+        "name": mixer.getTrackName(track),
+        "band_count": count,
+        "bands": [_eq_band(track, band) for band in range(count)],
+    }
+
+
+def handle_mixer_get_eq(params: dict) -> dict:
+    """Read every band of a mixer track's EQ.
+
+    EQ is seven bands of three properties each, so one tool per property would be
+    twenty one round trips to answer one question. The band count is read from FL
+    rather than assumed, because a hardcoded seven would be wrong on a version
+    that changed it.
+    """
+    track = _require(params, "track", "mixer.getEq")
+    refusal = _check_track_index(track, "mixer.getEq")
+    if refusal is not None:
+        return refusal
+    return _eq_snapshot(track)
+
+
+def handle_mixer_set_eq_bands(params: dict) -> dict:
+    """Set several EQ bands and report the result read back.
+
+    Only the properties the caller named are written, so a band the caller did not
+    mention is left alone rather than reset to a default.
+    """
+    track = _require(params, "track", "mixer.setEqBands")
+    bands = params.get("bands")
+    if not isinstance(bands, list) or not bands:
+        return {"error": "mixer.setEqBands requires a non-empty 'bands' list"}
+
+    refusal = _check_track_index(track, "mixer.setEqBands")
+    if refusal is not None:
+        return refusal
+
+    count = mixer.getEqBandCount()
+    for entry in bands:
+        if not isinstance(entry, dict) or "band" not in entry:
+            return {"error": "mixer.setEqBands: every entry needs a 'band'"}
+        band = int(entry["band"])
+        if not 0 <= band < count:
+            return {
+                "error": (
+                    "mixer.setEqBands: band %d does not exist. This mixer track has "
+                    "%d bands, indexed 0 to %d." % (band, count, count - 1)
+                )
+            }
+        written = False
+        if "gain" in entry:
+            mixer.setEqGain(track, band, float(entry["gain"]))
+            written = True
+        if "frequency" in entry:
+            mixer.setEqFrequency(track, band, float(entry["frequency"]))
+            written = True
+        if "bandwidth" in entry:
+            mixer.setEqBandwidth(track, band, float(entry["bandwidth"]))
+            written = True
+        if not written:
+            return {
+                "error": (
+                    "mixer.setEqBands: band %d has nothing to set. Give at least "
+                    "one of gain, frequency or bandwidth." % band
+                )
+            }
+
+    return _eq_snapshot(track)
 
 
 def handle_mixer_get_track_count() -> dict:
@@ -1416,6 +1527,23 @@ def handle_plugins_get_color(params: dict) -> dict:
 # =============================================================================
 # Pattern Handlers
 # =============================================================================
+
+
+def _check_track_index(index: int, action: str) -> dict | None:
+    """Refuse a mixer track outside the project, naming the range.
+
+    FL ignores an out-of-range track rather than complaining, so a wrong index
+    silently reads or writes nothing. Refusing says which index was wrong.
+    """
+    count = mixer.trackCount()
+    if not 0 <= index < count:
+        return {
+            "error": (
+                "%s: mixer track %d does not exist. This project has %d tracks, "
+                "indexed 0 to %d." % (action, index, count, count - 1)
+            )
+        }
+    return None
 
 
 def _check_pattern_index(index: int, action: str) -> dict | None:

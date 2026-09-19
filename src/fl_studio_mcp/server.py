@@ -23,6 +23,7 @@ from fastmcp import FastMCP
 from fl_studio_mcp.tools import (
     register_batch_tools,
     register_channel_tools,
+    register_eq_tools,
     register_mixer_tools,
     register_pattern_tools,
     register_piano_roll_tools,
@@ -176,6 +177,7 @@ register_plugin_tools(mcp)
 register_piano_roll_tools(mcp)
 register_batch_tools(mcp)
 register_pattern_tools(mcp)
+register_eq_tools(mcp)
 
 
 def main():

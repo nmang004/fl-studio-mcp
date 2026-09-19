@@ -23,7 +23,10 @@ PEAK_L = 0
 PEAK_R = 1
 PEAK_LR = 2
 
-EQ_BAND_COUNT = 7
+# Measured on live FL Studio 2026, build 5406: a mixer insert EQ reports three
+# bands, not the seven a naive reading of "multi-band EQ" would suggest. The
+# handler reads this from FL rather than assuming either number.
+EQ_BAND_COUNT = 3
 
 
 def build(project: FakeProject) -> ModuleType:

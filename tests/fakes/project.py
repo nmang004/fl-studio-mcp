@@ -60,9 +60,9 @@ class MixerTrack:
     solo: bool = False
     armed: bool = False
     routes: dict[int, float] = field(default_factory=dict)
-    eq_gains: list[float] = field(default_factory=lambda: [0.0] * 7)
-    eq_freqs: list[float] = field(default_factory=lambda: [0.5] * 7)
-    eq_bandwidths: list[float] = field(default_factory=lambda: [0.5] * 7)
+    eq_gains: list[float] = field(default_factory=lambda: [0.5] * 3)
+    eq_freqs: list[float] = field(default_factory=lambda: [0.5] * 3)
+    eq_bandwidths: list[float] = field(default_factory=lambda: [0.5] * 3)
 
     def volume_db(self) -> float:
         """A monotonic stand-in for FL's volume-to-decibels mapping.
