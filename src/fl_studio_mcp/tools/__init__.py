@@ -4,6 +4,7 @@ from fl_studio_mcp.tools.batch import register_batch_tools
 from fl_studio_mcp.tools.channels import register_channel_tools
 from fl_studio_mcp.tools.describe import register_describe_tools
 from fl_studio_mcp.tools.eq import register_eq_tools
+from fl_studio_mcp.tools.journal import register_journal_tools
 from fl_studio_mcp.tools.metering import register_metering_tools
 from fl_studio_mcp.tools.mixer import register_mixer_tools
 from fl_studio_mcp.tools.patterns import register_pattern_tools
@@ -32,4 +33,5 @@ __all__ = [
     "register_describe_tools",
     "register_metering_tools",
     "register_review_tools",
+    "register_journal_tools",
 ]

@@ -518,6 +518,20 @@ against the wrong piano roll.
 | `fl_undo_history` | Report how deep the undo history is |
 
 
+### Session Journal
+
+| Tool | Description |
+|------|-------------|
+| `fl_journal` | List the edits this server has made, newest first |
+| `fl_journal_summary` | Count what was changed, by action and namespace |
+
+Every command that changes the project, the transport or a window is recorded with its parameters, its outcome and how long it took. Note writes are recorded too, because they travel by a different path: a journal that saw only controller commands would report every fader move and no note edits.
+
+Reads are not recorded, so an empty journal means nothing was changed rather than nothing was asked. Both tools read a file on this machine and never talk to FL Studio, so they answer with FL closed, which is when the question is usually asked.
+
+The journal is a JSONL file under the library root, one file per day. Set `FL_STUDIO_MCP_JOURNAL=0` to turn it off. A journal that cannot be written never breaks the command it was recording: losing a log line is acceptable, losing a fader move because the log failed is not. When that happens, `fl_journal` says so rather than returning a misleadingly empty list.
+
+
 ### Musical Context
 
 | Tool | Description |

@@ -30,6 +30,7 @@ from fl_studio_mcp.tools import (
     register_channel_tools,
     register_describe_tools,
     register_eq_tools,
+    register_journal_tools,
     register_metering_tools,
     register_mixer_tools,
     register_pattern_tools,
@@ -207,6 +208,7 @@ register_score_tools(mcp)
 register_describe_tools(mcp)
 register_metering_tools(mcp)
 register_review_tools(mcp)
+register_journal_tools(mcp)
 
 
 def main():
