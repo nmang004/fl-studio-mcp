@@ -36,11 +36,21 @@ and after any transport change.
 3. FL Studio: Options > MIDI Settings. Enable the "FL Studio MCP" input and set
    its controller type to "FL Studio MCP Controller".
 
-4. FL Studio: assign the ComposeWithLLM piano roll script a keystroke, Cmd+Opt+Y
-   on macOS or Ctrl+Alt+Y on Windows.
+4. FL Studio: open a piano roll, then in the piano roll's own menu find
+   **Piano roll scripts** and confirm **ComposeWithLLM** is listed. Assign it a
+   keystroke, Cmd+Opt+Y on macOS or Ctrl+Alt+Y on Windows. This step cannot be
+   automated from outside FL and nothing in this repo performs it, but without it
+   the keystroke the server sends is delivered to nothing and every piano roll
+   tool times out.
 
-5. Restart FL Studio. Hot reload covers later script edits; the first install does
-   not.
+   To confirm the script itself works, click it from that menu directly. It needs
+   no keystroke and no permission, so it separates "the script is broken" from
+   "the trigger never arrived". An error inside the script appears as a dialog
+   with a traceback and the script's path, which is the only debugging surface on
+   that side.
+
+5. Restart FL Studio. Hot reload covers later controller edits; the first install
+   does not.
 
 ## Every time an FL-side script changes
 
@@ -123,3 +133,40 @@ Both must be covered before a release. Windows needs the extra step.
 Note the date, the FL Studio version, the API version, and any item that failed,
 in the commit message or the pull request description. A smoke test with no record
 is a rumour.
+
+### 2026-09-19, Phase 0
+
+FL Studio 2026, Producer Edition v26.1.6 build 5406, API version 45, macOS 26,
+Apple silicon.
+
+Passed:
+
+- Controller round trip, 1.1ms median over 10 calls.
+- `fl_get_version`: API 45, `safeToEdit: true`, tempo 130000 raw for a 130 BPM
+  project.
+- The unknown-action bug is fixed: `bogus.doesNotExist` now returns
+  `success: false`.
+- Piano roll end to end, with the trigger clicked by hand from FL's Piano roll
+  scripts menu: four notes added, the reply carried the matching request id and
+  `notes_added: 4`, the exported state showed all four, the queue emptied, and the
+  `slide` flag survived the round trip.
+- Error propagation on the piano roll path is real: an `os.replace` the sandbox
+  blocks produced FL's error dialog rather than a silent success.
+
+Could not be run:
+
+- The automatic keystroke. macOS refused it with error 1002,
+  `osascript is not allowed to send keystrokes`, because the process running this
+  does not hold the Accessibility permission. The code reports this honestly
+  instead of claiming success. The manual menu path above covers the same script
+  execution, but not the keystroke itself, so **the automated trigger remains
+  unverified on this machine**.
+- Windows, and Windows with a OneDrive-redirected Documents folder. No machine.
+
+Found during this run, and since fixed:
+
+- The piano roll script died on `os.replace`, which FL's sandbox blocks. Every
+  automated test passed, because a local interpreter allows it.
+- The controller died on `Path.mkdir` for the same reason.
+- No piano roll keystroke was bound in FL, so the path had never worked. Setup
+  step 4 above now covers it.
