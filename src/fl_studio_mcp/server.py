@@ -28,6 +28,7 @@ from fastmcp import FastMCP
 from fl_studio_mcp.tools import (
     register_batch_tools,
     register_channel_tools,
+    register_describe_tools,
     register_eq_tools,
     register_mixer_tools,
     register_pattern_tools,
@@ -201,6 +202,7 @@ register_routing_tools(mcp)
 register_project_tools(mcp)
 register_tempo_tools(mcp)
 register_score_tools(mcp)
+register_describe_tools(mcp)
 
 
 def main():

@@ -2,6 +2,7 @@
 
 from fl_studio_mcp.tools.batch import register_batch_tools
 from fl_studio_mcp.tools.channels import register_channel_tools
+from fl_studio_mcp.tools.describe import register_describe_tools
 from fl_studio_mcp.tools.eq import register_eq_tools
 from fl_studio_mcp.tools.mixer import register_mixer_tools
 from fl_studio_mcp.tools.patterns import register_pattern_tools
@@ -26,4 +27,5 @@ __all__ = [
     "register_project_tools",
     "register_tempo_tools",
     "register_score_tools",
+    "register_describe_tools",
 ]
