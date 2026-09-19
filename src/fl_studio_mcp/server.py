@@ -35,6 +35,7 @@ from fl_studio_mcp.tools import (
     register_plugin_tools,
     register_project_tools,
     register_routing_tools,
+    register_tempo_tools,
     register_transport_tools,
 )
 from fl_studio_mcp.utils.connection import get_connection, reset_connection
@@ -197,6 +198,7 @@ register_pattern_tools(mcp)
 register_eq_tools(mcp)
 register_routing_tools(mcp)
 register_project_tools(mcp)
+register_tempo_tools(mcp)
 
 
 def main():

@@ -50,13 +50,16 @@ REPORT_KEYS = {
 
 
 def test_the_probe_reports_the_value_before_the_value_after_and_the_flags(fl_env):
-    """A run against the fake's default, which does not move the tempo.
+    """A run against an FL that ignores the write.
 
-    That default is also the honest one: nothing has measured whether FL Studio
-    honours the write, so the fake records the call and leaves the tempo alone.
-    The report has to be readable either way, because a live negative result is
-    the thing this probe exists to be able to state.
+    The write was measured to work on build 5406, so the fake models that by
+    default. This test turns it off, because a live negative result is the other
+    thing the probe exists to be able to state, and the report has to be readable
+    either way.
+
+    See docs/spikes/2026-09-19-T1-tempo-write.md.
     """
+    fl_env.project.tempo_write_works = False
     result = fl_env.controller.dispatch_command(
         "system.tempoProbe", {"bpm": 140.0, "restore": False}
     )
@@ -135,6 +138,7 @@ def test_restore_is_reported_as_verified_when_the_tempo_never_moved(fl_env):
     """Restore means "the project holds the original tempo", not "a second write
     happened". On an FL that ignores the write the project is already correct, and
     the report says so rather than claiming a failure."""
+    fl_env.project.tempo_write_works = False
     result = fl_env.controller.dispatch_command(
         "system.tempoProbe", {"bpm": 90.0, "restore": True}
     )
@@ -246,8 +250,12 @@ def test_a_raising_restore_is_reported(fl_env, monkeypatch):
 
     assert "error" in result
     assert "restore refused" in result["error"]
-    assert result["tempo_restored"] == 130000
-    assert result["restore_verified"] is True
+    # The write landed, so the project is holding the requested tempo and the
+    # restore is what failed. That is the state a caller most needs told about,
+    # because their project is not where they left it.
+    assert result["write_verified"] is True
+    assert result["tempo_restored"] == 140000
+    assert result["restore_verified"] is False
 
 
 def test_an_unreadable_tempo_refuses_the_write(fl_env, monkeypatch):

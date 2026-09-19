@@ -140,7 +140,12 @@ class FakeProject:
         # test that needs the write to land sets this, which models one plausible
         # FL rather than asserting anything about the real one. See
         # tests/fakes/modules/general.processRECEvent.
-        self.tempo_write_works = False
+        # Whether processRECEvent actually moves the tempo. The live measurement
+        # (docs/spikes/2026-09-19-T1-tempo-write.md) showed it does on FL Studio
+        # 2026 build 5406, so the default models that. A test can turn it off to
+        # exercise the failure path, which is the one that matters: FL accepting
+        # the call and the tempo not moving.
+        self.tempo_write_works = True
         # general.getRecPPQ. Not measured yet, so this is the common default.
         self.ppq = 96
         self.is_playing = False

@@ -85,16 +85,18 @@ def build(project: FakeProject) -> ModuleType:
     def processRECEvent(eventId: int, value: int, flags: int) -> None:
         """Recording events, modelled only far enough to be observable.
 
-        Writing tempo is research spike T1, and whether FL honours a REC_Tempo
-        write is unmeasured, so the fake does not decide it. Every call is
-        recorded, and the tempo moves only when a test turns on
-        `project.tempo_write_works`, which models a plausible FL: the value is
-        stored when REC_UpdateValue is among the flags and ignored otherwise.
+        The tempo write was measured on live FL Studio 2026 build 5406 and it
+        works, so the fake models that by default: the value is stored when
+        REC_UpdateValue is among the flags and ignored otherwise. See
+        docs/spikes/2026-09-19-T1-tempo-write.md.
 
-        This is a model of one possible FL Studio, not evidence about the real
-        one. A test that drives the probe through this fake checks the probe's
-        arithmetic and its reporting. It says nothing about whether a tempo write
-        works in FL Studio, and nothing here may be cited as if it did.
+        A test can set `project.tempo_write_works` false to model an FL that
+        accepts the call and does not move, which is the failure a tempo tool has
+        to detect.
+
+        Even so, this is a model and not the real thing. A test that drives the
+        probe through this fake checks the probe's arithmetic and its reporting,
+        not FL's behaviour.
         """
         project.rec_events.append((eventId, value, flags))
         if not project.tempo_write_works:

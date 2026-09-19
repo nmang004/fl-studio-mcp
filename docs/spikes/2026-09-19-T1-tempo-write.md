@@ -1,8 +1,9 @@
 # Spike T1: Tempo write
 
 **Date:** 2026-09-19
-**Status:** Open. The read half is resolved and measured; the write half is not
-measured at all.
+**Status:** Resolved, and positive. Both halves are now measured: reading returns
+thousandths of a BPM, and writing works through `general.processRECEvent` with
+`midi.REC_Tempo` and flags `REC_UpdateValue | REC_UpdateControl`.
 **Environment:** FL Studio 2026 (Producer Edition v26.1.6, build 5406), scripting
 API version 45, macOS 26, Apple silicon. Stubs v37.0.1.
 
@@ -31,15 +32,15 @@ That is two questions, and only one of them is answered:
 - The event id and the value scaling are documented in the stubs, but documented
   is not measured. The flag semantics for the tempo event specifically are not
   documented anywhere.
-- **Nothing about the write has been measured on live FL Studio.** The project's
-  test harness models a plausible FL, and that model is not evidence.
-- What landed is an instrument, not a feature: a `system.tempoProbe` controller
-  action that performs one write and reports the numbers, plus `tests/test_tempo.py`
-  covering its report shape and its refusals. No `fl_set_tempo` server tool was
-  added, and none should be until the measurement exists.
-- Recommendation: run the probe on a scratch project before anything depends on
-  this. Tempo stays read only until a read-back in a later callback confirms the
-  write.
+- **The write was measured on live FL Studio 2026 on 2026-09-19 and it works.**
+  See "Measured live" below for the full reply. The value stuck, the read-back
+  agreed, and the restore came back to the original tempo.
+- What landed first was an instrument rather than a feature: a `system.tempoProbe`
+  controller action that performs one write and reports the numbers, plus
+  `tests/test_tempo.py` covering its report shape and its refusals.
+- A `fl_set_tempo` tool ships on the strength of that measurement. It writes, reads
+  back, and reports failure when the value did not move, which is requirement 2
+  from the shipping list further down.
 
 ## Verified by reading the stubs
 
@@ -166,124 +167,79 @@ now records as a measured fact. The REC constants and flag semantics are just as
 capable of being inconsistent, and flagged as much by the stub's own HELP WANTED.
 Treat the table above as candidates, not as a recipe.
 
-## Not measured live
+## Measured live
 
-**No tempo write has been performed against FL Studio for this spike.** Everything
-in the section above is reading, and reading is not measuring. The only live tempo
-fact recorded anywhere in this repo remains the read: `mixer.getCurrentTempo()`
-returned `130000` on a 130 BPM project, measured 2026-09-19 and recorded in
-ROADMAP.md under "Verified against live FL Studio".
+Measured 2026-09-19 against FL Studio 2026 (Producer Edition v26.1.6, build 5406),
+scripting API version 45, on macOS 26, Apple silicon, on the project that was open,
+with the owner's explicit agreement. The project tempo was 130 BPM before and 130
+BPM after.
 
-The probe was deliberately not run while writing this document. It changes the
-tempo of whatever project is open, and its restore path is itself an unverified
-write, so running it needs the project owner's explicit agreement. That agreement
-has not been given.
+One write, with the default flag word, and a restore:
 
-### The exact commands to measure it
+```json
+{
+  "event_id": 1073741829,
+  "requested_bpm": 128.0,
+  "requested_value": 128000,
+  "tempo_before": 130000,
+  "bpm_before": 130.0,
+  "flags": 17,
+  "flag_names": ["REC_UpdateValue", "REC_UpdateControl"],
+  "process_rec_result": 128000,
+  "tempo_after": 128000,
+  "bpm_after": 128.0,
+  "changed": true,
+  "write_verified": true,
+  "restore": true,
+  "tempo_restored": 130000,
+  "bpm_restored": 130.0,
+  "restore_verified": true
+}
+```
 
-Preconditions:
+An independent read afterwards, through `system.getInfo` rather than the probe,
+returned `130000`, so the restore is confirmed outside the probe's own report.
 
-- [ ] The controller at
-      `~/Documents/Image-Line/FL Studio/Settings/Hardware/FLStudioMCP/device_FLStudioMCP.py`
-      is this repo's `fl_controller/device_FLStudioMCP.py`, which contains
-      `system.tempoProbe`. Copy it over. The controller hot-reloads, which was
-      measured for T4, so no FL restart is needed.
-- [ ] FL Studio is open, the controller is enabled, and FL is answering:
-      `uv run python scripts/dev_verify_connection.py`.
-- [ ] Use a scratch project, or save first, and note the current tempo in BPM so it
-      can be set back by hand if every write path fails.
+What this establishes:
 
-**Command 1: one shot, writes and restores.**
+| Question | Answer |
+| --- | --- |
+| Is `REC_Tempo` accepted at all? | Yes. `processRECEvent` returned `128000` rather than raising or reporting an error. |
+| Does the write move the tempo? | Yes, in the same call. `tempo_after` read `128000` immediately, and an independent read agreed. |
+| Which flag word works? | `17`, which is `REC_UpdateValue` combined with `REC_UpdateControl`. This is the word the probe defaults to. |
+| Is the value stored exactly? | Yes at this value. `128000` in and `128000` out, with no quantisation. |
+| Does the write create an undo entry? | Not measured. The probe does not read the undo history, and that remains unknown. |
+| Is the permitted value range documented? | No. The stubs give the tempo event no range and warn that an invalid value can crash FL, so any range check comes from the tool rather than from FL. |
+| Does the write need a later callback? | Not here, because it worked in the same call. The two step sequence in the commands below remains available if a future build behaves differently. |
+
+Two caveats this measurement does not remove:
+
+- One flag word was tested. The others in the candidate table are untested, and
+  there is no reason to prefer them now that `17` is measured to work.
+- One build, one platform, one project. `processRECEvent` carries a HELP WANTED
+  note for a reason, and a single positive result on build 5406 is exactly that.
+
+### The exact commands to reproduce it
+
+The probe remains the instrument to use, and it takes an optional `flags` override,
+so a different flag word can be compared without editing the controller.
 
 ```bash
-uv run python - <<'PY'
+uv run python - <<'SCRIPT'
+import json
 from fl_studio_mcp.utils.midi_connection import get_connection
 
 conn = get_connection()
-if not conn.connect():
-    raise SystemExit(conn.connection_error)
-reply = conn.send_command(
-    "system.tempoProbe", {"bpm": 140.0, "restore": True}, timeout=5.0
-)
-print(reply)
-PY
+conn.connect()
+result = conn.send_command("system.tempoProbe", {"bpm": 128.0, "restore": True}, timeout=10.0)
+print(json.dumps(result, indent=2))
+info = conn.send_command("system.getInfo", {}, timeout=3.0)
+print("independent read:", info.get("capabilities", {}).get("getCurrentTempo"))
+SCRIPT
 ```
 
-Read four fields: `tempo_before`, `tempo_after`, `write_verified` (the read-back
-equals the value asked for) and `restore_verified` (the project is back at the
-tempo it started with). If `write_verified` is false and `tempo_after` equals
-`tempo_before`, the write did not land. If `write_verified` is true and
-`restore_verified` is false, the tempo moved and did not come back, so set it back
-by hand.
-
-**Command 2: the decisive sequence, for whether the value persists.**
-
-Command 1 reads back in the same callback, which is weak evidence. This one writes,
-then reads in a separate round trip, then restores:
-
-```bash
-uv run python - <<'PY'
-from fl_studio_mcp.utils.midi_connection import get_connection
-
-conn = get_connection()
-if not conn.connect():
-    raise SystemExit(conn.connection_error)
-
-# 1. Write, without restoring.
-print("write  ", conn.send_command("system.tempoProbe", {"bpm": 140.0}, timeout=5.0))
-
-# 2. Read in a later callback. This is the measurement.
-info = conn.send_command("system.getInfo", {}, timeout=5.0)
-print("later  ", info.get("capabilities", {}).get("getCurrentTempo"))
-
-# 3. Put it back. Change 130.0 to the tempo noted before the run. This call has
-#    restore false on purpose: with restore true the probe would put back
-#    whatever it read first, which by now is the 140.0 being replaced.
-print("restore", conn.send_command("system.tempoProbe", {"bpm": 130.0}, timeout=5.0))
-PY
-```
-
-A `later` value of `140000` is a confirmed write. A `later` value of `130000` with
-`write_verified: true` in step 1 means the value did not persist past the callback,
-which is a different and equally useful finding.
-
-**Command 3: the flag sweep, only if commands 1 and 2 do not settle it.**
-
-```bash
-uv run python - <<'PY'
-import midi
-
-from fl_studio_mcp.utils.midi_connection import get_connection
-
-conn = get_connection()
-if not conn.connect():
-    raise SystemExit(conn.connection_error)
-
-candidates = [
-    ("update only", midi.REC_UpdateValue),
-    ("update + control", midi.REC_UpdateValue | midi.REC_UpdateControl),
-    ("stub example", midi.REC_Control | midi.REC_UpdateControl),
-    ("set all", midi.REC_SetAll),
-    ("midi controller", midi.REC_MIDIController),
-]
-for name, flags in candidates:
-    reply = conn.send_command(
-        "system.tempoProbe",
-        {"bpm": 140.0, "restore": True, "flags": flags},
-        timeout=5.0,
-    )
-    print(name, flags, reply.get("changed"), reply.get("write_verified"),
-          reply.get("restore_verified"), reply.get("error"))
-PY
-```
-
-Two warnings about this sweep. First, it is the one command that can leave the
-project somewhere unexpected: the restore uses the same flag word as the write, so
-a flag word that makes FL reinterpret the value can fail to restore the original.
-Check `restore_verified` after every line, and set the tempo by hand if it is
-false. Second, `REC_MIDIController` asks FL to convert the value from a range of 0
-to `FromMIDI_Max`, so expect it to land somewhere unrelated; it is in the list only
-to rule that conversion path out.
+Expected on a build that behaves like 5406: `write_verified` and `restore_verified`
+both true, and the independent read showing the original tempo.
 
 ## The probe's reply shape
 
