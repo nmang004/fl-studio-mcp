@@ -422,9 +422,14 @@ def handle_transport_get_status() -> dict:
 
 
 def handle_transport_set_position(params: dict) -> dict:
-    """Set playback position."""
+    """Set playback position.
+
+    mode -1 means the units transport.getSongPosHint returns, which is what a
+    caller passing a bare position almost always wants. Modes 0 to 5 are ticks,
+    milliseconds, seconds and so on, per transport.setSongPos.
+    """
     position = params.get("position", 0)
-    mode = params.get("mode", 2)  # Default: seconds
+    mode = params.get("mode", -1)
     transport.setSongPos(position, mode)
     return {"position": transport.getSongPosHint()}
 
@@ -439,15 +444,17 @@ def handle_transport_get_length() -> dict:
 
 
 def handle_transport_set_loop_mode(params: dict) -> dict:
-    """Set loop mode."""
-    mode = params.get("mode", "pattern")
-    current_mode = transport.getLoopMode()
-    target_mode = 1 if mode.lower() == "song" else 0
+    """Set loop mode.
 
-    if current_mode != target_mode:
+    transport.setLoopMode takes no arguments and toggles between the two modes,
+    so this compares and toggles rather than passing a value through. Calling it
+    unconditionally would flip away from the mode the caller asked for.
+    """
+    mode = str(params.get("mode", "pattern")).lower()
+    target = 1 if mode == "song" else 0
+    if transport.getLoopMode() != target:
         transport.setLoopMode()
-
-    return {"mode": mode}
+    return {"mode": "song" if transport.getLoopMode() == 1 else "pattern"}
 
 
 def handle_transport_set_playback_speed(params: dict) -> dict:
