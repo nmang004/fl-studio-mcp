@@ -31,29 +31,42 @@ import plugins
 import transport
 import ui
 
+SETTINGS_DIR_ENV = "FL_STUDIO_MCP_SETTINGS_DIR"
 
-def _get_script_dir() -> Path:
-    """Get the script directory path.
 
-    FL Studio's Python environment doesn't support __file__, so we construct
-    the path based on the platform's standard FL Studio settings location.
+def _get_settings_dir() -> Path:
+    """Get the FL Studio Settings directory.
+
+    FL Studio's Python environment doesn't support __file__, so the path is
+    constructed from the platform's standard location. FL_STUDIO_MCP_SETTINGS_DIR
+    overrides it, which the test harness uses to keep every file inside a
+    temporary directory.
+
+    This duplicates fl_studio_mcp.utils.paths on purpose: the controller runs
+    inside FL and cannot import the server package.
     """
-    if sys.platform == "darwin":
-        # macOS
-        base = Path.home() / "Documents" / "Image-Line" / "FL Studio" / "Settings"
-    elif sys.platform == "win32":
-        # Windows
-        userprofile = os.environ.get("USERPROFILE", "~")
-        base = Path(userprofile) / "Documents" / "Image-Line" / "FL Studio" / "Settings"
-    else:
-        # Linux (unlikely but handle it)
-        base = Path.home() / "Documents" / "Image-Line" / "FL Studio" / "Settings"
+    override = os.environ.get(SETTINGS_DIR_ENV)
+    if override:
+        return Path(override).expanduser()
 
-    return base / "Hardware" / "FLStudioMCP"
+    home = Path.home()
+    candidates = [home / "Documents" / "Image-Line" / "FL Studio" / "Settings"]
+    if sys.platform == "win32":
+        # Windows machines with a Microsoft account often keep Documents inside
+        # OneDrive, where the Image-Line folder follows it.
+        candidates.append(
+            home / "OneDrive" / "Documents" / "Image-Line" / "FL Studio" / "Settings"
+        )
+
+    for candidate in candidates:
+        if candidate.is_dir():
+            return candidate
+    return candidates[0]
 
 
 # File paths for JSON communication
-SCRIPT_DIR = _get_script_dir()
+SCRIPT_DIR = _get_settings_dir() / "Hardware" / "FLStudioMCP"
+SCRIPT_DIR.mkdir(parents=True, exist_ok=True)
 COMMAND_FILE = SCRIPT_DIR / "mcp_command.json"
 RESPONSE_FILE = SCRIPT_DIR / "mcp_response.json"
 
@@ -87,7 +100,12 @@ def OnIdle():
 
 
 def execute_pending_command():
-    """Read command from JSON file, execute it, and write response."""
+    """Read command from JSON file, execute it, and write response.
+
+    Failure is reported as failure. An unknown action or an exception inside a
+    handler used to be merged into `{"success": True, "error": ...}`, which was
+    reproduced against live FL Studio and made every error invisible to callers.
+    """
     response = {"success": False, "error": None}
 
     try:
@@ -102,10 +120,12 @@ def execute_pending_command():
 
         action = command.get("action", "")
         params = command.get("params", {})
+        request_id = command.get("id")
 
         # Execute command and get result
         result = dispatch_command(action, params)
-        response = {"success": True, **result}
+        failed = "error" in result
+        response = {"success": not failed, "id": request_id, **result}
 
     except json.JSONDecodeError as e:
         response["error"] = f"Invalid JSON in command file: {e}"
@@ -116,9 +136,16 @@ def execute_pending_command():
 
 
 def write_response(response: dict):
-    """Write response to JSON file."""
+    """Write response to JSON file, atomically.
+
+    The server polls for this file and reads it the moment it exists, so a plain
+    write can be observed half finished and fail to parse. Writing beside the
+    target and then os.replace makes the swap atomic on both platforms.
+    """
     try:
-        RESPONSE_FILE.write_text(json.dumps(response, indent=2))
+        temporary = RESPONSE_FILE.with_suffix(".json.tmp")
+        temporary.write_text(json.dumps(response, indent=2))
+        os.replace(temporary, RESPONSE_FILE)
     except Exception as e:
         print(f"Error writing response: {e}")
 
@@ -243,6 +270,19 @@ def dispatch_command(action: str, params: dict) -> dict:
 # =============================================================================
 
 
+def _safe_to_edit():
+    """Whether FL is in a state where the project may be mutated.
+
+    `general.safeToEdit` was added in API 29, so on anything older the function
+    does not exist. The honest answer there is "unknown", which is None, not
+    False and not an exception.
+    """
+    try:
+        return bool(general.safeToEdit())
+    except Exception:
+        return None
+
+
 def handle_system_get_info() -> dict:
     """Report which FL Studio and scripting API version we are talking to.
 
@@ -271,10 +311,7 @@ def handle_system_get_info() -> dict:
 
     # Probe a few version-gated functions so callers know what is usable.
     capabilities = {}
-    try:
-        capabilities["safeToEdit"] = general.safeToEdit()
-    except Exception:
-        capabilities["safeToEdit"] = None
+    capabilities["safeToEdit"] = _safe_to_edit()
     try:
         capabilities["getCurrentTempo"] = mixer.getCurrentTempo()
     except Exception:
