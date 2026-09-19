@@ -46,13 +46,42 @@ REQUEST_FILE = os.path.join(SCRIPT_DIR, "mcp_request.json")
 RESPONSE_FILE = os.path.join(SCRIPT_DIR, "mcp_response.json")
 STATE_FILE = os.path.join(SCRIPT_DIR, "piano_roll_state.json")
 
-# flpianoroll.Note properties that take a number and are copied straight across
-# when the request supplies them.
-NUMERIC_NOTE_PROPERTIES = ("velocity", "pan", "color", "fcut", "fres", "pitchofs")
-# Properties that take an integer rather than a float.
-INTEGER_NOTE_PROPERTIES = ("group", "repeats")
-# Properties that are flags.
-FLAG_NOTE_PROPERTIES = ("slide", "porta", "release", "muted", "selected")
+# Every flpianoroll.Note property a request may set, with the type to coerce to.
+# The types are read from flpianoroll/__note.py rather than assumed: pitchofs,
+# group and repeats are ints, velocity, pan, fcut, fres and release are floats,
+# and slide, porta, muted and selected are the only four flags.
+#
+# This was wrong before. release was in the flag list, so a release of 0.75 became
+# True, which is silent because it is still a valid value. One table with the type
+# per property is what stops that class of mistake: there is no second list to
+# disagree with.
+NOTE_PROPERTIES = (
+    ("velocity", float),
+    ("pan", float),
+    ("fcut", float),
+    ("fres", float),
+    ("release", float),
+    ("color", int),
+    ("group", int),
+    ("pitchofs", int),
+    ("repeats", int),
+    ("slide", bool),
+    ("porta", bool),
+    ("muted", bool),
+    ("selected", bool),
+)
+
+# The ranges the stubs document. FL clamps or truncates rather than complaining, so
+# a value outside these would land as something the caller did not ask for and never
+# hear about. Only the two integer properties have documented ranges; the floats are
+# normalised by FL itself.
+NOTE_RANGES = {
+    # "This is represented in units of 10 cents, so setting note.pitchofs = 42 will
+    # set the pitch offset to +420 cents." Range is -120 to 120.
+    "pitchofs": (-120, 120),
+    # 0 to 14, each value naming a repeat rate.
+    "repeats": (0, 14),
+}
 
 
 def _write_json(path, data):
@@ -112,15 +141,18 @@ def _note_from(data):
     note.number = int(data["midi"])
     note.time = _beat_to_ticks(data.get("time", data.get("offset", 0)))
     note.length = _beat_to_ticks(data["duration"])
-    for key in NUMERIC_NOTE_PROPERTIES:
-        if key in data:
-            setattr(note, key, float(data[key]))
-    for key in INTEGER_NOTE_PROPERTIES:
-        if key in data:
-            setattr(note, key, int(data[key]))
-    for key in FLAG_NOTE_PROPERTIES:
-        if key in data:
-            setattr(note, key, bool(data[key]))
+    for key, coerce in NOTE_PROPERTIES:
+        if key not in data:
+            continue
+        value = coerce(data[key])
+        if key in NOTE_RANGES:
+            low, high = NOTE_RANGES[key]
+            if not low <= value <= high:
+                raise ValueError(
+                    "note.%s is %s, outside the range %s to %s the API documents"
+                    % (key, value, low, high)
+                )
+        setattr(note, key, value)
     return note
 
 
@@ -233,6 +265,9 @@ def _export_state():
             "slide": note.slide,
             "porta": note.porta,
             "pitchofs": note.pitchofs,
+            "release": note.release,
+            "repeats": note.repeats,
+            "group": note.group,
             "selected": note.selected,
             "muted": note.muted,
         })

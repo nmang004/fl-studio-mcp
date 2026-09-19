@@ -164,14 +164,16 @@ def test_slide_porta_and_filter_survive_a_round_trip(fl_env):
     """Phase 4 depends on the fake carrying all sixteen Note properties."""
     write_request(fl_env, [{"action": "add_notes", "id": "expr", "notes": [
         {"midi": 36, "time": 0.0, "duration": 0.5, "slide": True, "porta": True,
-         "pitchofs": 0.25, "fcut": 0.6, "fres": 0.3, "pan": -0.4, "group": 7,
+         # pitchofs is an int in units of 10 cents, so 25 is a quarter tone.
+         # This was 0.25 here, which the stub does not allow.
+         "pitchofs": 25, "fcut": 0.6, "fres": 0.3, "pan": -0.4, "group": 7,
          "repeats": 2, "muted": True},
     ]}])
     fl_env.pyscript.apply()
     note = fl_env.project.notes[0]
     assert note.slide is True
     assert note.porta is True
-    assert note.pitchofs == pytest.approx(0.25)
+    assert note.pitchofs == 25, "10 cent units, so 25 is a quarter tone"
     assert note.fcut == pytest.approx(0.6)
     assert note.fres == pytest.approx(0.3)
     assert note.pan == pytest.approx(-0.4)

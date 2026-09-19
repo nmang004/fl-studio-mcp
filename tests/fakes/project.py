@@ -105,9 +105,13 @@ class Note:
     fres: float = 0.0
     group: int = 0
     muted: bool = False
-    pitchofs: float = 0.0
+    # Types read from the stubs rather than assumed. flpianoroll/__note.py gives
+    # pitchofs as an int in units of 10 cents, so a semitone is 10 and the range is
+    # -120 to 120. release is a float, and slide, porta, muted and selected are the
+    # only flags. repeats is an int, 0 to 14, naming a repeat rate.
+    pitchofs: int = 0
     porta: bool = False
-    release: bool = False
+    release: float = 0.0
     repeats: int = 0
     selected: bool = False
     slide: bool = False
@@ -180,7 +184,10 @@ class FakeProject:
         self.selected_mixer_track = 0
         self.mixer_selected: list[int] = []
         self.snap_root_note = 0
-        self.snap_scale_helper = 0
+        # The stub documents this as a string of 0 and 1 separated by commas, where
+        # 0 means in the scale and 1 means out, always aligned to C. It is not an
+        # index or an enum.
+        self.snap_scale_helper = "0,1,0,1,0,0,1,0,1,0,1,0"
         self.tsnum = 4
         self.tsden = 4
         self.timeline_selection = (0, 0)
