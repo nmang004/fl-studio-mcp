@@ -42,14 +42,14 @@ if ! command -v uv &> /dev/null; then
         exit 1
     fi
 fi
-echo -e "${GREEN}✓${NC} uv is installed"
+echo -e "${GREEN}[ok]${NC} uv is installed"
 
 # Step 2: Install Python dependencies (3.12, which matches PyPI wheels for python-rtmidi on Windows)
 echo ""
 echo -e "${YELLOW}[2/5]${NC} Installing Python dependencies (Python 3.12)..."
 uv python install 3.12
 uv sync --python 3.12
-echo -e "${GREEN}✓${NC} Dependencies installed"
+echo -e "${GREEN}[ok]${NC} Dependencies installed"
 
 # Step 3: Set up virtual MIDI and FL Studio controller
 echo ""
@@ -71,12 +71,12 @@ echo ""
 echo -e "${YELLOW}[4/5]${NC} Verifying Piano Roll script..."
 FL_SCRIPTS="$HOME/Documents/Image-Line/FL Studio/Settings/Piano roll scripts"
 if [[ -f "$FL_SCRIPTS/ComposeWithLLM.pyscript" ]]; then
-    echo -e "${GREEN}✓${NC} Piano Roll script installed"
+    echo -e "${GREEN}[ok]${NC} Piano Roll script installed"
 else
     if [[ -f "$SCRIPT_DIR/scripts/ComposeWithLLM.pyscript" ]]; then
         mkdir -p "$FL_SCRIPTS"
         cp "$SCRIPT_DIR/scripts/ComposeWithLLM.pyscript" "$FL_SCRIPTS/"
-        echo -e "${GREEN}✓${NC} Piano Roll script installed"
+        echo -e "${GREEN}[ok]${NC} Piano Roll script installed"
     else
         echo -e "${YELLOW}!${NC} Piano Roll script not found - some features may be limited"
     fi

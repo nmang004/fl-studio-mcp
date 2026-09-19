@@ -137,27 +137,44 @@ def test_fake_modules_are_bound_to_the_project_under_test(fl_env):
     assert fl_env.modules["channels"].getChannelName(2) == "Bound To Me"
 
 
-def test_no_em_dash_or_en_dash_in_shipped_text():
-    """Style rule from ROADMAP.md, enforced rather than remembered."""
-    offenders = []
-    for path in CONTROLLER_PATH.parent.parent.rglob("*"):
+def _shipped_text_files():
+    """Every text file the repo ships, excluding tooling and vendored trees."""
+    skip = {".git", ".venv", ".pytest_cache", ".ruff_cache", "__pycache__"}
+    suffixes = {".py", ".md", ".pyscript", ".toml", ".yml", ".yaml", ".sh", ".ps1"}
+    root = CONTROLLER_PATH.parent.parent
+    for path in root.rglob("*"):
         if not path.is_file():
             continue
-        parts = set(path.relative_to(CONTROLLER_PATH.parent.parent).parts)
-        if parts & {".git", ".venv", ".pytest_cache", ".ruff_cache", "__pycache__"}:
+        if skip & set(path.relative_to(root).parts):
             continue
-        if path.suffix not in {
-            ".py",
-            ".md",
-            ".pyscript",
-            ".toml",
-            ".yml",
-            ".yaml",
-            ".sh",
-            ".ps1",
-        }:
-            continue
-        text = path.read_text(errors="ignore")
-        if "\u2014" in text or "\u2013" in text:
-            offenders.append(str(path.relative_to(CONTROLLER_PATH.parent.parent)))
+        if path.suffix in suffixes:
+            yield path
+
+
+def test_no_em_dash_or_en_dash_in_shipped_text():
+    """Style rule from ROADMAP.md, enforced rather than remembered."""
+    offenders = [
+        path.name
+        for path in _shipped_text_files()
+        if "\u2014" in path.read_text(errors="ignore")
+        or "\u2013" in path.read_text(errors="ignore")
+    ]
     assert not offenders, f"em dash or en dash found in: {offenders}"
+
+
+def test_no_emoji_or_pictographs_in_shipped_text():
+    """The rule is no emoji, and it applies to terminal output too.
+
+    The installers used check marks and a warning sign in their progress output.
+    Those are pictographs rather than emoji proper, but the rule does not carve
+    that out, and plain ASCII markers work in every terminal.
+    """
+    import re
+
+    pictograph = re.compile("[\U0001f300-\U0001faff\u2600-\u27bf\U0001f000-\U0001f2ff]")
+    offenders = [
+        path.name
+        for path in _shipped_text_files()
+        if pictograph.search(path.read_text(errors="ignore"))
+    ]
+    assert not offenders, f"emoji or pictographs found in: {offenders}"

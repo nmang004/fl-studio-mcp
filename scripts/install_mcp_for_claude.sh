@@ -57,7 +57,7 @@ check_config_status() {
 
     if [[ -f "$config_file" ]]; then
         if grep -q "fl-studio" "$config_file" 2>/dev/null; then
-            echo -e "  ${GREEN}✓${NC} $config_name: Already configured"
+            echo -e "  ${GREEN}[ok]${NC} $config_name: Already configured"
             return 0
         else
             echo -e "  ${YELLOW}○${NC} $config_name: Not configured"
@@ -118,7 +118,7 @@ with open(config_file, 'w') as f:
     json.dump(config, f, indent=2)
 EOF
 
-    echo -e "  ${GREEN}✓${NC} Added fl-studio MCP server"
+    echo -e "  ${GREEN}[ok]${NC} Added fl-studio MCP server"
 }
 
 # Show current status
