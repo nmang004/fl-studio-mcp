@@ -23,12 +23,16 @@ import os
 import sys
 from pathlib import Path
 
+import arrangement
+
 # FL Studio API modules (available when running inside FL Studio)
 import channels
 import device
 import general
+import midi
 import mixer
 import patterns
+import playlist
 import plugins
 import transport
 import ui
@@ -200,6 +204,34 @@ def _route_command(action: str, params: dict) -> dict:
         return handle_system_ping()
     elif action == "system.batch":
         return handle_system_batch(params)
+    elif action == "system.tempoProbe":
+        return handle_system_tempo_probe(params)
+
+    # Playlist commands
+    elif action == "playlist.getAll":
+        return handle_playlist_get_all(params)
+    elif action == "playlist.setTrack":
+        return handle_playlist_set_track(params)
+
+    # Arrangement commands
+    elif action == "arrangement.getMarkers":
+        return handle_arrangement_get_markers()
+    elif action == "arrangement.addMarker":
+        return handle_arrangement_add_marker(params)
+
+    # UI commands
+    elif action == "ui.getState":
+        return handle_ui_get_state()
+    elif action == "ui.showWindow":
+        return handle_ui_show_window(params)
+    elif action == "ui.hideWindow":
+        return handle_ui_hide_window(params)
+
+    # Channel properties
+    elif action == "channels.getProperties":
+        return handle_channels_get_properties(params)
+    elif action == "channels.setProperties":
+        return handle_channels_set_properties(params)
 
     # Routing and metering commands
     elif action == "mixer.getRouting":
@@ -533,7 +565,12 @@ MUTATING_ACTIONS = frozenset([
     "channels.setGridBit",
     "channels.setName",
     "channels.setPan",
+    "channels.setProperties",
     "channels.setStepSequence",
+    "arrangement.addMarker",
+    "playlist.setTrack",
+    "ui.hideWindow",
+    "ui.showWindow",
     "channels.setTargetFxTrack",
     "channels.setVolume",
     "channels.solo",
@@ -565,6 +602,11 @@ MUTATING_ACTIONS = frozenset([
     "patterns.select",
     "patterns.setColor",
     "patterns.setName",
+    # The tempo probe writes the project tempo, so it is gated like any other
+    # write even though its purpose is measurement. It refuses to write at all
+    # when it cannot read the current tempo first, because then it would have
+    # nothing to restore the project to.
+    "system.tempoProbe",
     "transport.record",
     "transport.setLoopMode",
     "transport.setPlaybackSpeed",
@@ -740,6 +782,184 @@ def handle_system_get_info() -> dict:
 
 
 # =============================================================================
+# Tempo probe (research spike T1)
+# =============================================================================
+
+# From the stubs: `midi/__rec_events/ranges.py` defines REC_ItemRange = 0x10000
+# and REC_Global_First = 0x4000 * REC_ItemRange, and
+# `midi/__rec_events/global_properties.py` defines REC_Tempo as
+# REC_Global_First + 5, so the id is 0x40000005. The same stub says the value is
+# 1000 * tempo, which the live read confirms: mixer.getCurrentTempo() returned
+# 130000 on a 130 BPM project.
+TEMPO_REC_EVENT = midi.REC_Tempo
+
+# The write path. `general.processRECEvent` is the only function in the whole
+# stub set that can set a tempo; no module has a dedicated setter. Its own
+# docstring says "Try to achieve your task with other API functions first! This
+# part of FL's scripting API is incomplete, poorly documented, and filled with
+# hidden bugs", so the flag word below is a candidate, not a verified recipe.
+#
+# Why these two bits: REC_UpdateValue (1 << 0) is the flag that stores a new
+# value for the event, and REC_UpdateControl (1 << 4) is documented as the flag
+# without which "any changes won't be shown in FL Studio's UI", so a write that
+# omitted it could land and still look like a failure to the user. The stub's own
+# worked example for this exact task, in midi/__rec_events/global_properties.py,
+# uses REC_Control | REC_UpdateControl, where REC_Control is a preset bundle that
+# already contains REC_UpdateValue plus six more bits. This pair is the smallest
+# flag word that covers both stated requirements, and a caller can point the
+# probe at any other combination with its `flags` parameter.
+TEMPO_WRITE_FLAGS = midi.REC_UpdateValue | midi.REC_UpdateControl
+
+# The two base flags this module is willing to name, so a report says which bits
+# were set rather than leaving the reader to decode 17.
+REC_FLAG_NAMES = (
+    ("REC_UpdateValue", midi.REC_UpdateValue),
+    ("REC_UpdateControl", midi.REC_UpdateControl),
+)
+
+
+def _rec_flag_names(flags: int) -> list:
+    """Name the parts of a REC flag word that this module knows about."""
+    return [name for name, bit in REC_FLAG_NAMES if flags & bit]
+
+
+def _read_tempo():
+    """The project tempo in thousandths of a BPM, or None if FL would not say.
+
+    None rather than an exception, because the probe reports everything it could
+    observe and must not lose the whole report to one unreadable field. None is
+    not a tempo and never compares equal to one.
+    """
+    try:
+        return mixer.getCurrentTempo()
+    except Exception:
+        return None
+
+
+def _bpm(raw):
+    """Thousandths of a BPM expressed as BPM, for a human reading the report."""
+    return None if raw is None else raw / 1000.0
+
+
+def handle_system_tempo_probe(params: dict) -> dict:
+    """Attempt one tempo write and report exactly what happened, for spike T1.
+
+    Reading the tempo is settled: mixer.getCurrentTempo() returned 130000 on a
+    130 BPM project, so the unit is thousandths of a BPM. Writing it is not
+    settled and cannot be settled by reading the stubs, because no tempo setter
+    exists anywhere in the API and the one path that does exist,
+    general.processRECEvent with midi.REC_Tempo, carries a docstring that advises
+    against using it at all.
+
+    So this action measures rather than sets. It reads the tempo, asks for a new
+    one, reads it back, and reports the requested BPM, the raw value it asked
+    for, the value before, the value after, the flags it used and those flags by
+    name. It does not decide whether the write worked; a caller reads the numbers.
+    A negative result is a result: it says the tempo event is not writable this
+    way on this build, which is what the roadmap needs before a tempo tool ships.
+
+    It writes to the project, so a caller that wants the project left as it found
+    it passes restore true, and the reply says whether the original value came
+    back. When the tempo cannot be read first, the probe refuses to write at all,
+    because then there would be nothing to restore.
+
+    Never raises. Every failure, including a refusal, comes back as an "error"
+    field, so a live run always produces a readable answer and a failed probe
+    cannot be mistaken for a hang.
+
+    'bpm' is required. Two more are optional:
+
+        restore (bool): put the original tempo back afterwards. Default false.
+        flags (int): override the flag word, so several candidate combinations
+            can be compared in one live session without editing this script.
+            Defaults to REC_UpdateValue | REC_UpdateControl.
+    """
+    raw_bpm = _require(params, "bpm", "system.tempoProbe")
+    try:
+        bpm = float(raw_bpm)
+    except (TypeError, ValueError):
+        return {"error": "system.tempoProbe: 'bpm' must be a number, got %r" % (raw_bpm,)}
+
+    # The stub warns that an invalid value for processRECEvent "can lead to very
+    # strange behavior and sometimes crashes", so a nonsense tempo is refused
+    # rather than tried out on someone's project. NaN fails this comparison too.
+    if not bpm > 0:
+        return {"error": "system.tempoProbe: 'bpm' must be greater than zero, got %r" % (raw_bpm,)}
+    try:
+        value = int(bpm * 1000)
+    except (OverflowError, ValueError):
+        return {"error": "system.tempoProbe: 'bpm' is not a usable tempo: %r" % (raw_bpm,)}
+
+    flags = params.get("flags")
+    if flags is None:
+        flags = TEMPO_WRITE_FLAGS
+    try:
+        flags = int(flags)
+    except (TypeError, ValueError):
+        return {"error": "system.tempoProbe: 'flags' must be an integer, got %r" % (flags,)}
+
+    restore = bool(params.get("restore", False))
+
+    before = _read_tempo()
+    if before is None:
+        return {
+            "error": (
+                "system.tempoProbe: mixer.getCurrentTempo() did not answer, so no "
+                "tempo was written. Without the tempo before the write there would "
+                "be nothing to restore the project to."
+            )
+        }
+
+    report = {
+        "event_id": TEMPO_REC_EVENT,
+        "requested_bpm": bpm,
+        "requested_value": value,
+        "tempo_before": before,
+        "bpm_before": _bpm(before),
+        "flags": flags,
+        "flag_names": _rec_flag_names(flags),
+        "process_rec_result": None,
+        "tempo_after": None,
+        "bpm_after": None,
+        "changed": None,
+        "write_verified": None,
+        "restore": restore,
+        "tempo_restored": None,
+        "bpm_restored": None,
+        "restore_verified": None,
+    }
+
+    try:
+        report["process_rec_result"] = general.processRECEvent(TEMPO_REC_EVENT, value, flags)
+    except Exception as e:
+        # Not a dead end: the write may have landed anyway, which is one of the
+        # hidden behaviours this probe exists to find, so the read-back and the
+        # restore below still run.
+        report["error"] = "system.tempoProbe: general.processRECEvent raised: %s" % e
+
+    after = _read_tempo()
+    report["tempo_after"] = after
+    report["bpm_after"] = _bpm(after)
+    report["changed"] = None if after is None else after != before
+    report["write_verified"] = None if after is None else after == value
+
+    if restore:
+        try:
+            general.processRECEvent(TEMPO_REC_EVENT, int(before), flags)
+        except Exception as e:
+            report["restore_error"] = (
+                "system.tempoProbe: restoring the original tempo raised: %s" % e
+            )
+            report.setdefault("error", report["restore_error"])
+        restored = _read_tempo()
+        report["tempo_restored"] = restored
+        report["bpm_restored"] = _bpm(restored)
+        report["restore_verified"] = None if restored is None else restored == before
+
+    return report
+
+
+# =============================================================================
 # Transport Handlers
 # =============================================================================
 
@@ -825,6 +1045,263 @@ def handle_transport_set_playback_speed(params: dict) -> dict:
 MIXER_PEAK_LEFT = 0
 MIXER_PEAK_RIGHT = 1
 MIXER_PEAK_MAX = 2
+
+# From the stubs: channels.quickQuantize modes.
+CHANNEL_QUANTIZE_START = 0
+CHANNEL_QUANTIZE_START_AND_END = 1
+
+# =============================================================================
+# Project Handlers: playlist, arrangement, UI, channel properties
+# =============================================================================
+
+
+# From the stubs: ui.showWindow and hideWindow indices.
+WID_MIXER = 0
+WID_CHANNEL_RACK = 1
+WID_PLAYLIST = 2
+WID_BROWSER = 4
+
+WINDOW_NAMES = {
+    WID_MIXER: "mixer",
+    WID_CHANNEL_RACK: "channel rack",
+    WID_PLAYLIST: "playlist",
+    WID_PIANO_ROLL: "piano roll",
+    WID_BROWSER: "browser",
+}
+
+
+def handle_playlist_get_all(params: dict) -> dict:
+    """Playlist tracks with their properties.
+
+    A playlist track is a lane in the arrangement. It is not a mixer track and not
+    a Channel Rack channel, and FL keeps the three separate: renaming one does not
+    rename another. Conflating them is the mistake a generic DAW tool makes.
+
+    Measured on live FL Studio 2026: the project reports 500 playlist tracks and
+    exactly one of them has a name. Returning all five hundred is noise, so innamed
+    lanes are skipped unless the caller asks for them.
+    """
+    include_unnamed = bool(params.get("include_unnamed", False))
+    tracks = []
+    for index in range(playlist.trackCount()):
+        entry = {"index": index}
+        for key, reader in (
+            ("name", lambda i=index: playlist.getTrackName(i)),
+            ("color", lambda i=index: playlist.getTrackColor(i) & 0xFFFFFF),
+            ("is_muted", lambda i=index: bool(playlist.isTrackMuted(i))),
+            ("is_solo", lambda i=index: bool(playlist.isTrackSolo(i))),
+        ):
+            try:
+                entry[key] = reader()
+            except Exception:
+                entry[key] = None
+
+        named = bool(entry.get("name"))
+        if not named and not include_unnamed:
+            continue
+        tracks.append(entry)
+
+    return {
+        "tracks": tracks,
+        "total_tracks": playlist.trackCount(),
+        "named_tracks": len(tracks) if not include_unnamed else None,
+    }
+
+
+def handle_playlist_set_track(params: dict) -> dict:
+    """Rename, recolour, mute or solo a playlist track."""
+    index = _require(params, "index", "playlist.setTrack")
+    count = playlist.trackCount()
+    if not 0 <= index < count:
+        return {
+            "error": (
+                "playlist.setTrack: track %d does not exist. This project has %d "
+                "playlist tracks, indexed 0 to %d." % (index, count, count - 1)
+            )
+        }
+
+    if "name" in params:
+        playlist.setTrackName(index, params["name"])
+    if "color" in params:
+        playlist.setTrackColor(index, int(params["color"]))
+    if "muted" in params:
+        playlist.muteTrack(index, 1 if params["muted"] else 0)
+    if "solo" in params:
+        playlist.soloTrack(index, 1 if params["solo"] else 0)
+
+    return {
+        "index": index,
+        "name": playlist.getTrackName(index),
+        "color": playlist.getTrackColor(index) & 0xFFFFFF,
+        "is_muted": bool(playlist.isTrackMuted(index)),
+        "is_solo": bool(playlist.isTrackSolo(index)),
+    }
+
+
+def handle_arrangement_get_markers() -> dict:
+    """The arrangement's time markers, and the current selection.
+
+    The API can read a marker's name but not its time: there is no getMarkerTime,
+    and `arrangement.getMarkerName` is the only reader. So the time is reported as
+    None rather than invented, and a caller that needs times should record them
+    when it places the marker.
+    """
+    markers = []
+    index = 0
+    # Measured on live FL Studio 2026: reading past the last real marker returns an
+    # empty name rather than failing, so the loop stops there. Without this the
+    # reply was five hundred empty markers, which is worse than no answer.
+    while index < 512:
+        try:
+            name = arrangement.getMarkerName(index)
+        except Exception:
+            break
+        if not name:
+            break
+        markers.append({"index": index, "name": name, "time": None})
+        index += 1
+
+    return {
+        "markers": markers,
+        "selection": {
+            "start": arrangement.selectionStart(),
+            "end": arrangement.selectionEnd(),
+        },
+    }
+
+
+def handle_arrangement_add_marker(params: dict) -> dict:
+    """Place a time marker in the arrangement.
+
+    Markers are how far arrangement building goes: the playlist module has no
+    function that places a clip, so structure can be annotated but not built.
+    """
+    time = _require(params, "time", "arrangement.addMarker")
+    name = params.get("name")
+    if name is None:
+        return {"error": "arrangement.addMarker requires a 'name'"}
+    arrangement.addAutoTimeMarker(int(time), name)
+    return {"time": int(time), "name": name}
+
+
+def handle_ui_get_state() -> dict:
+    """Which FL windows are open, and what has focus.
+
+    This is a read, and it is what tells a caller whether the piano roll is even
+    open before it tries to write into one.
+    """
+    windows = {}
+    for index, name in WINDOW_NAMES.items():
+        try:
+            windows[name] = bool(ui.getVisible(index))
+        except Exception:
+            windows[name] = None
+
+    state = {"windows": windows}
+    state["piano_roll_visible"] = windows.get("piano roll")
+
+    # ui.getFocused takes a window index and answers for that one window. There is
+    # no "which window has focus" call, so each candidate is asked in turn.
+    focused = None
+    for index in WINDOW_NAMES:
+        try:
+            if ui.getFocused(index):
+                focused = index
+                break
+        except Exception:
+            continue
+    state["focused"] = focused
+    try:
+        state["snap_mode"] = ui.getSnapMode()
+    except Exception:
+        state["snap_mode"] = None
+    try:
+        state["form_caption"] = ui.getFocusedFormCaption()
+    except Exception:
+        state["form_caption"] = None
+
+    try:
+        state["selected_channel"] = channels.selectedChannel(
+            canBeNone=True, indexGlobal=True
+        )
+    except Exception:
+        state["selected_channel"] = None
+    return state
+
+
+def handle_ui_show_window(params: dict) -> dict:
+    """Show an FL window."""
+    index = _require(params, "index", "ui.showWindow")
+    ui.showWindow(int(index))
+    return {"index": int(index), "visible": bool(ui.getVisible(int(index)))}
+
+
+def handle_ui_hide_window(params: dict) -> dict:
+    """Hide an FL window."""
+    index = _require(params, "index", "ui.hideWindow")
+    ui.hideWindow(int(index))
+    return {"index": int(index), "visible": bool(ui.getVisible(int(index)))}
+
+
+def handle_channels_get_properties(params: dict) -> dict:
+    """A channel's type, pitch and routing, alongside what getInfo already gives.
+
+    Kept separate from channels.getInfo so the common case stays one small reply
+    and the less common properties cost a second call rather than every call.
+    """
+    index = _require(params, "index", "channels.getProperties")
+    channel = channels.getChannelType(index, True)
+    result = {
+        "index": index,
+        "name": channels.getChannelName(index, True),
+        "channel_type": channel,
+    }
+    for key, reader in (
+        ("pitch", lambda: channels.getChannelPitch(index, useGlobalIndex=True)),
+        ("target_fx_track", lambda: channels.getTargetFxTrack(index, True)),
+        ("is_muted", lambda: bool(channels.isChannelMuted(index, True))),
+        ("is_solo", lambda: bool(channels.isChannelSolo(index, True))),
+        ("is_selected", lambda: bool(channels.isChannelSelected(index, True))),
+    ):
+        try:
+            result[key] = reader()
+        except Exception:
+            result[key] = None
+    return result
+
+
+def handle_channels_set_properties(params: dict) -> dict:
+    """Set a channel's pitch, or quantize it."""
+    index = _require(params, "index", "channels.setProperties")
+    did_something = False
+
+    if "pitch" in params:
+        channels.setChannelPitch(index, float(params["pitch"]), useGlobalIndex=True)
+        did_something = True
+
+    quantized = None
+    if params.get("quantize"):
+        # From the stubs: channels.quickQuantize modes. 1 quantizes note starts
+        # and lengths, which is what "quantize this part" means to a producer.
+        channels.quickQuantize(index, CHANNEL_QUANTIZE_START_AND_END, True)
+        did_something = True
+        quantized = True
+
+    if not did_something:
+        return {
+            "error": (
+                "channels.setProperties: nothing to set. Give 'pitch', "
+                "'quantize', or both."
+            )
+        }
+
+    result = {
+        "index": index,
+        "pitch": channels.getChannelPitch(index, useGlobalIndex=True),
+        "quantized": quantized,
+    }
+    return result
+
 
 # =============================================================================
 # Routing and Metering Handlers
