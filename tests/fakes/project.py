@@ -145,6 +145,11 @@ class FakeProject:
         self.api_version = 45  # observed on FL Studio 2026, build 5406
         self.safe_to_edit = True
         self.undo_stack: list[str] = []
+        # How many history entries one mutating command costs. FL Studio 2026
+        # files mixer changes separately from channel and step changes, which was
+        # measured live: two mixer writes cost three entries, while two channel
+        # writes cost one.
+        self.undo_entries_per_write = 1
         self.current_pattern = 0
         self.markers: list[tuple[int, str]] = []
         self.snap_mode = 0
@@ -188,6 +193,17 @@ class FakeProject:
         tracks = [MixerTrack("Master")]
         tracks += [MixerTrack(f"Insert {i}") for i in range(1, count)]
         return cls(tracks=tracks)
+
+    def record_undo(self, label: str) -> None:
+        """Record one undo history entry for one logical edit.
+
+        A mutating API call moves the undo history, so the fake has to as well, or
+        a test that reads the history would see nothing after a real-looking edit.
+        Live FL Studio 2026 files some edits as several entries; that is modelled
+        by `undo_entries_per_write`, which a test sets when the case matters.
+        """
+        for _ in range(max(1, self.undo_entries_per_write)):
+            self.undo_stack.append(label)
 
     def channel(self, index: int) -> Channel:
         """Return a channel, or raise IndexError the way FL would not.

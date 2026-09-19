@@ -34,7 +34,30 @@ def build(project: FakeProject) -> ModuleType:
         return 1 if project.tempo else 1
 
     def saveUndo(undoName: str, flags: int, update: bool = True) -> None:
-        project.undo_stack.append(undoName)
+        """Append one history entry, or as many as the project models.
+
+        Real FL decides this itself: a batch of channel writes costs one entry
+        while mixer writes cost more, which was measured live. The project carries
+        the number so a test can exercise both cases.
+        """
+        for _ in range(max(1, project.undo_entries_per_write)):
+            project.undo_stack.append(undoName)
+
+    def getUndoHistoryLast() -> int:
+        """Position in the history.
+
+        The stub says the most recent position is 0 and earlier points have higher
+        indexes, which would make this 0 always. Live FL Studio 2026 also returned
+        0 after every edit, so the fake matches that rather than inventing a
+        position the real API does not report.
+        """
+        return 0
+
+    def undoUpDown(value: int) -> None:
+        """Move by a count. Negative undoes, positive redoes."""
+        if value < 0:
+            for _ in range(min(-value, len(project.undo_stack))):
+                project.undo_stack.pop()
 
     def undo() -> None:
         if len(project.undo_stack) > 1:
@@ -76,6 +99,8 @@ def build(project: FakeProject) -> ModuleType:
     module.restoreUndo = restoreUndo
     module.restoreUndoLevel = restoreUndoLevel
     module.getUndoHistoryCount = getUndoHistoryCount
+    module.getUndoHistoryLast = getUndoHistoryLast
+    module.undoUpDown = undoUpDown
     module.getUndoHistoryPos = getUndoHistoryPos
     module.getUndoLevelHint = getUndoLevelHint
     module.getUseMetronome = getUseMetronome

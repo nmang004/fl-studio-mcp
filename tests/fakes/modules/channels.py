@@ -82,12 +82,14 @@ def build(project: FakeProject) -> ModuleType:
 
     def setChannelVolume(index: int, volume: float, useGlobalIndex: bool = False) -> None:
         project.channel(index).volume = clamp(volume, 0.0, 1.0)
+        project.record_undo("set channel volume")
 
     def getChannelPan(index: int, useGlobalIndex: bool = False) -> float:
         return project.channel(index).pan
 
     def setChannelPan(index: int, pan: float, useGlobalIndex: bool = False) -> None:
         project.channel(index).pan = clamp(pan, -1.0, 1.0)
+        project.record_undo("set channel pan")
 
     def getChannelPitch(index: int, mode: int = PITCH_SEMITONES, useGlobalIndex: bool = False):
         channel = project.channel(index)
@@ -149,6 +151,7 @@ def build(project: FakeProject) -> ModuleType:
         index: int, position: int, value: bool, useGlobalIndex: bool = False
     ) -> None:
         project.channel(index).grid[position] = bool(value)
+        project.record_undo("set grid bit")
 
     def getGridBitWithLoop(
         index: int, position: int, useGlobalIndex: bool = False

@@ -185,6 +185,20 @@ def _route_command(action: str, params: dict) -> dict:
         return handle_system_get_info()
     elif action == "system.ping":
         return handle_system_ping()
+    elif action == "system.batch":
+        return handle_system_batch(params)
+
+    # Undo commands
+    elif action == "general.saveUndo":
+        return handle_general_save_undo(params)
+    elif action == "general.undo":
+        return handle_general_undo(params)
+    elif action == "general.getUndoHistoryCount":
+        return handle_general_get_undo_history_count(params)
+    elif action == "general.getUndoHistoryLast":
+        return handle_general_get_undo_history_last(params)
+    elif action == "general.undoUpDown":
+        return handle_general_undo_up_down(params)
     elif action == "system.sysExProbe":
         return handle_system_sysex_probe(params)
 
@@ -390,6 +404,134 @@ def _require(params: dict, name: str, action: str):
     if name not in params or params[name] is None:
         raise ValueError(f"{action} requires a '{name}'")
     return params[name]
+
+
+def _undo_count():
+    """Undo history depth, or None where the API does not provide it."""
+    try:
+        return general.getUndoHistoryCount()
+    except Exception:
+        return None
+
+
+def handle_general_save_undo(params: dict) -> dict:
+    """Save an undo point.
+
+    general.saveUndo was added in API 29 along with safeToEdit, so an older FL
+    cannot do this. Reporting that honestly is better than letting a caller
+    believe an edit is undoable when it is not.
+    """
+    name = params.get("name") or "MCP edit"
+    try:
+        general.saveUndo(name, 0)
+    except Exception as e:
+        return {"error": f"general.saveUndo is unavailable: {e}"}
+    return {"saved": True, "name": name, "count": _undo_count()}
+
+
+def handle_general_undo(params: dict) -> dict:
+    """Undo one step."""
+    general.undo()
+    return {"count": _undo_count()}
+
+
+def handle_general_get_undo_history_count(params: dict) -> dict:
+    """Report undo history depth, so a caller can see its own edit appear."""
+    return {"count": _undo_count()}
+
+
+def handle_general_get_undo_history_last(params: dict) -> dict:
+    """Report the current position in the undo history.
+
+    The most recent position is 0, and earlier points have higher indexes, so a
+    position plus a count is enough to work out where an edit started and ended.
+    """
+    try:
+        return {"last": general.getUndoHistoryLast(), "count": _undo_count()}
+    except Exception as e:
+        return {"error": f"general.getUndoHistoryLast is unavailable: {e}"}
+
+
+def handle_general_undo_up_down(params: dict) -> dict:
+    """Move several steps through the undo history at once.
+
+    Undoing an edit that produced several history entries needs this rather than
+    a single undo(), which is a toggle and moves by one.
+    """
+    value = params.get("value")
+    if value is None:
+        return {"error": "general.undoUpDown requires a 'value'"}
+    try:
+        general.undoUpDown(int(value))
+    except Exception as e:
+        return {"error": f"general.undoUpDown is unavailable: {e}"}
+    return {"moved": int(value), "count": _undo_count()}
+
+
+def handle_system_batch(params: dict) -> dict:
+    """Run several commands from one trigger, inside one undo point.
+
+    The motivation is atomicity and undo grouping rather than speed: a round trip
+    is about a millisecond, so batching sixteen notes saves fifteen of them, which
+    does not matter, while turning sixteen Ctrl+Z presses into one does.
+
+    A failure stops the batch and the commands after it are reported as skipped
+    rather than run, because a half-applied edit that claims success is worse than
+    one that says exactly where it stopped.
+    """
+    commands = params.get("commands")
+    if not isinstance(commands, list) or not commands:
+        return {"error": "system.batch requires a non-empty 'commands' list"}
+
+    for index, command in enumerate(commands):
+        if not isinstance(command, dict) or not command.get("action"):
+            return {"error": "system.batch command %d has no 'action'" % index}
+
+    name = params.get("name") or "MCP edit"
+    # A descriptive name for the caller. Note what this deliberately is not: a
+    # general.saveUndo call. That was tried, and measured on FL Studio 2026 it
+    # changes nothing: a bare saveUndo adds no history entry (count 34 -> 34) and
+    # does not reduce how many undos the edit needs (2 with it, 2 without). The
+    # undo history is not a group stack, so claiming to group here would be a
+    # guarantee FL does not offer. What the batch does guarantee is one trigger
+    # and all-or-nothing execution.
+    undo_name = name
+
+    results = []
+    executed = 0
+    failed = 0
+
+    for command in commands:
+        action = command["action"]
+        if action == "system.batch":
+            results.append({"error": "a batch may not contain a batch"})
+            failed += 1
+            break
+
+        result = dispatch_command(action, command.get("params", {}))
+        results.append(result)
+
+        if "error" in result:
+            failed += 1
+            break
+        executed += 1
+
+    remaining = len(commands) - len(results)
+    results.extend({"skipped": True} for _ in range(remaining))
+
+    # The history size, read rather than derived. FL's undo accounting does not
+    # predict how many undo calls an edit needs: measured on FL Studio 2026, two
+    # mixer writes moved the count by 1 but needed two undo calls, and four step
+    # writes moved it by -1 while needing one. Reporting the count lets a caller
+    # see the history move without being told a step figure that may be wrong.
+    return {
+        "success": failed == 0,
+        "results": results,
+        "executed": executed,
+        "failed": failed,
+        "undo_name": undo_name,
+        "undo_history_count": _undo_count(),
+    }
 
 
 def handle_system_ping() -> dict:

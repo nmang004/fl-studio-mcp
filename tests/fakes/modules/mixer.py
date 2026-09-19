@@ -40,12 +40,14 @@ def build(project: FakeProject) -> ModuleType:
 
     def setTrackName(index: int, name: str) -> None:
         project.track(index).name = name
+        project.record_undo("set track name")
 
     def getTrackColor(index: int) -> int:
         return project.track(index).color
 
     def setTrackColor(index: int, color: int) -> None:
         project.track(index).color = int(color)
+        project.record_undo("set track color")
 
     def getTrackVolume(index: int, mode: int = VOLUME_LINEAR) -> float:
         track = project.track(index)
@@ -55,12 +57,14 @@ def build(project: FakeProject) -> ModuleType:
 
     def setTrackVolume(index: int, volume: float, pickupMode: int = 0) -> None:
         project.track(index).volume = clamp(volume, 0.0, 1.0)
+        project.record_undo("set track volume")
 
     def getTrackPan(index: int) -> float:
         return project.track(index).pan
 
     def setTrackPan(index: int, pan: float, pickupMode: int = 0) -> None:
         project.track(index).pan = clamp(pan, -1.0, 1.0)
+        project.record_undo("set track pan")
 
     def getTrackStereoSep(index: int) -> float:
         return project.track(index).stereo_sep
