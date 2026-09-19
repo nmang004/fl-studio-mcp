@@ -45,6 +45,18 @@ def test_exactly_one_is_not_clipping():
     assert analysis.find_peaks([level(1, 1.0)]) == []
 
 
+def test_a_peak_just_over_the_ceiling_shows_the_overshoot():
+    """Two decimals round 1.004 to 1.00, the exact value that is not clipping.
+
+    A live review found a clipped master and reported it as "peaked at 1.00, which
+    is over 0 dB, so it is clipping", which contradicts the rule above. The number
+    in the message has to be able to show that the peak is over the ceiling.
+    """
+    detail = analysis.find_peaks([level(1, 1.004)])[0]["detail"]
+    assert "1.004" in detail
+    assert "0.03 dB over full scale" in detail
+
+
 def test_a_silent_track_is_reported():
     findings = analysis.find_peaks([level(2, 0.0)])
     assert [f["kind"] for f in findings] == ["silent"]

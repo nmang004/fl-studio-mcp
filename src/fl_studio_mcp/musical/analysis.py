@@ -11,6 +11,8 @@ loudness, and the difference decides what a finding may claim.
 
 from __future__ import annotations
 
+import math
+
 # A peak above this is over 0 dB. Exactly 1.0 is the ceiling, not over it.
 CLIP_THRESHOLD = 1.0
 
@@ -48,14 +50,20 @@ def find_peaks(levels: list[dict]) -> list[dict]:
         name = entry.get("name") or f"track {track}"
 
         if peak > CLIP_THRESHOLD:
+            # Three decimals, and the overshoot in dB, because a clipping peak is
+            # often barely over the ceiling: 1.004 rounded to two decimals reads as
+            # 1.00, the exact value this function says is not clipping. A live review
+            # hit that, and a message that contradicts its own threshold is worse than
+            # no message.
+            overshoot_db = 20.0 * math.log10(peak)
             findings.append({
                 "kind": "clipping",
                 "severity": PROBLEM,
                 "track": track,
                 "name": name,
                 "detail": (
-                    f"{name} peaked at {peak:.2f}, which is over 0 dB, so it is "
-                    "clipping."
+                    f"{name} peaked at {peak:.3f}, which is {overshoot_db:.2f} dB over "
+                    "full scale, so it is clipping."
                 ),
                 "peak": peak,
             })
