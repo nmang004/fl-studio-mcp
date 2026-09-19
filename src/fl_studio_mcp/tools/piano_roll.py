@@ -1,19 +1,28 @@
 """Piano Roll tools for FL Studio - persistent note placement.
 
 This module provides tools for creating, editing, and deleting notes in
-FL Studio's piano roll. Unlike MIDI real-time note triggering, these
-tools create persistent notes by communicating with FL Studio's Piano Roll
-scripting API via JSON files.
+FL Studio's piano roll. Unlike MIDI real-time note triggering, these tools
+create persistent notes by communicating with FL Studio's Piano Roll scripting
+API via JSON files.
 
 Communication flow:
 1. MCP server writes requests to mcp_request.json
 2. Keystroke trigger (Cmd+Opt+Y) executes FL Studio's ComposeWithLLM script
-3. Script reads JSON, modifies piano roll, exports state to piano_roll_state.json
+3. Script reads the request, modifies the piano roll, exports
+   piano_roll_state.json, and writes its reply to mcp_response.json
+4. This module reads that reply and reports what actually happened
+
+Step 4 is why this module looks the way it does. It used to be missing: the old
+code wrote a request, sent a keystroke, slept two seconds and reported success
+unconditionally, so editing the wrong piano roll, lacking Accessibility
+permission, and never having installed the script all looked identical.
 """
 
 from __future__ import annotations
 
 import json
+import time
+import uuid
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -23,88 +32,149 @@ from fl_studio_mcp.utils.paths import piano_roll_scripts_dir
 if TYPE_CHECKING:
     from fastmcp import FastMCP
 
+# How long to wait for the piano roll script's reply. The script itself is fast;
+# the wait is dominated by the keystroke and FL Studio taking focus.
+RESPONSE_TIMEOUT = 5.0
 
-def _get_request_file() -> Path:
+# Poll interval while waiting for the reply.
+POLL_INTERVAL = 0.005
+
+
+def _request_file() -> Path:
     """Get the path to the MCP request JSON file."""
     return piano_roll_scripts_dir() / "mcp_request.json"
 
 
-def _get_response_file() -> Path:
+def _response_file() -> Path:
     """Get the path to the MCP response JSON file."""
     return piano_roll_scripts_dir() / "mcp_response.json"
 
 
-def _get_state_file() -> Path:
+def _state_file() -> Path:
     """Get the path to the piano roll state JSON file."""
     return piano_roll_scripts_dir() / "piano_roll_state.json"
-
-
-def _write_request(request: dict | list) -> None:
-    """Write a request to the MCP request file."""
-    request_file = _get_request_file()
-
-    # Read existing requests if any
-    existing = []
-    if request_file.exists():
-        try:
-            with open(request_file) as f:
-                data = json.load(f)
-                if isinstance(data, list):
-                    existing = data
-                elif isinstance(data, dict):
-                    existing = [data]
-        except (json.JSONDecodeError, IOError):
-            existing = []
-
-    # Append new request(s)
-    if isinstance(request, list):
-        existing.extend(request)
-    else:
-        existing.append(request)
-
-    # Write back
-    with open(request_file, "w") as f:
-        json.dump(existing, f, indent=2)
-
-
-def _clear_request_file() -> None:
-    """Clear the request file."""
-    request_file = _get_request_file()
-    if request_file.exists():
-        request_file.unlink()
-
-
-def _read_state() -> dict | None:
-    """Read the current piano roll state."""
-    state_file = _get_state_file()
-    if not state_file.exists():
-        return None
-
-    try:
-        with open(state_file) as f:
-            return json.load(f)
-    except (json.JSONDecodeError, IOError):
-        return None
 
 
 def _midi_to_note_name(midi: int) -> str:
     """Convert MIDI note number to note name."""
     note_names = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"]
-    note_name = note_names[midi % 12]
-    octave = (midi // 12) - 1
-    return f"{note_name}{octave}"
+    return f"{note_names[midi % 12]}{(midi // 12) - 1}"
 
 
-def _get_trigger_info(auto_trigger: bool) -> str:
-    """Attempt to trigger FL Studio and return a status suffix string."""
-    if not auto_trigger:
-        return ""
+def _read_reply(response_file: Path) -> dict | None:
+    """Read a reply, or None if there is not a complete one yet.
+
+    The script writes this file in place, so a poll can catch it mid write. A
+    reply that does not parse is treated as unfinished rather than as an error.
+    """
+    try:
+        text = response_file.read_text()
+    except OSError:
+        return None
+    try:
+        parsed = json.loads(text)
+    except json.JSONDecodeError:
+        return None
+    if not isinstance(parsed, dict):
+        return None
+    return parsed
+
+
+def send_request(request: dict, timeout: float = RESPONSE_TIMEOUT) -> dict:
+    """Send one request to the piano roll script and return its reply.
+
+    Sequence: clear any stale reply, write the request, trigger the script, then
+    poll for a reply carrying this request's id. Every step can fail, and every
+    failure comes back with a specific reason.
+
+    Args:
+        request: The request dict, with an "action" key. An "id" is added when
+            the caller did not supply one, so the reply can be matched to it.
+        timeout: Seconds to wait for the reply.
+
+    Returns:
+        The script's reply, or a dict with "success": False and a specific
+        "error". A FL-side failure is reported, not raised.
+    """
+    scripts_dir = piano_roll_scripts_dir()
+    request_file = scripts_dir / "mcp_request.json"
+    response_file = scripts_dir / "mcp_response.json"
+
+    request = dict(request)
+    request.setdefault("id", uuid.uuid4().hex)
+
+    # A reply left over from an earlier call must not be read as this one's.
+    if response_file.exists():
+        response_file.unlink()
+    # The file holds exactly this request. Appending to a stale queue is what made
+    # previously failed requests replay on the next success.
+    request_file.write_text(json.dumps([request], indent=2))
+
+    if not trigger_fl_studio(delay=0):
+        return {
+            "success": False,
+            "error": (
+                "Could not send the trigger keystroke to FL Studio. Grant "
+                "Accessibility permission to this process, or press "
+                f"{get_trigger().keystroke} in FL Studio with a piano roll focused."
+            ),
+        }
+
+    deadline = time.time() + timeout
+    while time.time() < deadline:
+        reply = _read_reply(response_file)
+        if reply is not None and reply.get("id") in (None, request["id"]):
+            return reply
+        time.sleep(POLL_INTERVAL)
+
+    return {
+        "success": False,
+        "error": (
+            f"No reply from the piano roll script within {timeout}s. Check that "
+            "ComposeWithLLM is installed in FL Studio's Piano roll scripts "
+            "folder, that a piano roll window had focus, and that this process "
+            "has Accessibility permission to send the trigger keystroke."
+        ),
+    }
+
+
+def read_state() -> dict | None:
+    """Read the exported piano roll state, or None if there is not one."""
+    state_file = _state_file()
+    if not state_file.exists():
+        return None
+    try:
+        return json.loads(state_file.read_text())
+    except (json.JSONDecodeError, OSError):
+        return None
+
+
+def refresh_and_read_state(timeout: float = RESPONSE_TIMEOUT) -> dict:
+    """Trigger the script, then read the state it exports.
+
+    Reading without triggering returned whatever the last run happened to leave
+    behind, which could be minutes or days old.
+    """
+    reply = send_request({"action": "get_state"}, timeout=timeout)
+    state = read_state()
+    if state is None:
+        reason = reply.get("error") or "the script did not export any state"
+        return {"error": f"No piano roll state available: {reason}"}
+    for note in state.get("notes", []):
+        if "midi" in note:
+            note["note_name"] = _midi_to_note_name(note["midi"])
+    return state
+
+
+def _trigger_note() -> str:
+    """A suffix noting whether auto-trigger exists on this platform."""
     trigger = get_trigger()
     if not trigger.is_supported:
-        return f" Auto-trigger not supported on {trigger.platform}. Press the trigger key manually."
-    if trigger_fl_studio():
-        return " FL Studio triggered successfully."
-    return f" Warning: Could not trigger FL Studio. Press {trigger.keystroke} manually."
+        return (
+            f" Auto-trigger is not supported on {trigger.platform}. "
+            f"Press {trigger.keystroke} manually."
+        )
+    return ""
 
 
 def register_piano_roll_tools(mcp: FastMCP) -> None:
@@ -114,12 +184,12 @@ def register_piano_roll_tools(mcp: FastMCP) -> None:
     def fl_send_notes(
         notes: list[dict],
         mode: str = "add",
-        auto_trigger: bool = True
+        auto_trigger: bool = True,
     ) -> str:
         """Add or replace notes in the FL Studio piano roll.
 
-        This creates persistent notes in the currently open piano roll pattern.
-        Notes use quarter-note timing for simplicity.
+        Creates persistent notes in whichever piano roll has focus. Select the
+        channel first if you need a specific channel's piano roll.
 
         Args:
             notes: List of note objects with properties:
@@ -127,55 +197,53 @@ def register_piano_roll_tools(mcp: FastMCP) -> None:
                    - duration (float): Length in quarter notes (1.0 = quarter note)
                    - time (float, optional): Start position in quarter notes (default 0)
                    - velocity (float, optional): Velocity 0.0-1.0 (default 0.8)
+                   - slide (bool, optional): FL slide note, for 303-style lines
+                   - porta (bool, optional): Portamento
+                   - pitchofs (float, optional): Fine pitch offset
+                   - fcut (float, optional): Per-note filter cutoff
+                   - fres (float, optional): Per-note filter resonance
+                   - pan (float, optional): Per-note pan, -1.0 to 1.0
+                   - group (int, optional): Note group, for removing a phrase later
             mode: "add" to add notes, "replace" to clear existing notes first
-            auto_trigger: Whether to automatically trigger FL Studio (default True)
+            auto_trigger: Whether to trigger FL Studio automatically
 
-        Example notes:
+        Reports what actually landed, read back from FL Studio, or a specific
+        failure. It does not report success it has not confirmed.
+
+        Example:
             [
-                {"midi": 60, "duration": 1.0, "time": 0},      # C4 quarter note at beat 0
-                {"midi": 64, "duration": 1.0, "time": 0},      # E4 (chord with C4)
-                {"midi": 67, "duration": 1.0, "time": 0},      # G4 (C major chord)
-                {"midi": 60, "duration": 0.5, "time": 1.0},    # C4 eighth note at beat 1
+                {"midi": 60, "duration": 1.0, "time": 0},
+                {"midi": 64, "duration": 1.0, "time": 0},
+                {"midi": 67, "duration": 1.0, "time": 0},
             ]
         """
         if not notes:
-            return "Error: No notes provided"
+            raise ValueError("No notes provided")
 
-        # Validate notes
-        for i, note in enumerate(notes):
+        for index, note in enumerate(notes):
             if "midi" not in note:
-                return f"Error: Note {i} missing 'midi' field"
+                raise ValueError(f"Note {index} is missing its 'midi' field")
             if "duration" not in note:
-                return f"Error: Note {i} missing 'duration' field"
-
-            # Set defaults
+                raise ValueError(f"Note {index} is missing its 'duration' field")
             note.setdefault("time", 0)
             note.setdefault("velocity", 0.8)
 
-        requests = []
-
-        # If replace mode, clear first
         if mode == "replace":
-            requests.append({"action": "clear"})
+            cleared = send_request({"action": "clear"})
+            if not cleared.get("success"):
+                return f"Failed to clear the piano roll: {cleared.get('error')}"
 
-        # Add notes request
-        requests.append({
-            "action": "add_notes",
-            "notes": notes
-        })
+        result = send_request({"action": "add_notes", "notes": notes})
+        if not result.get("success"):
+            return f"Notes did not land: {result.get('error')}"
 
-        _write_request(requests)
-
-        trigger_info = _get_trigger_info(auto_trigger)
-        note_count = len(notes)
-        note_summary = ", ".join(
-            f"{_midi_to_note_name(n['midi'])}@{n.get('time', 0)}"
-            for n in notes[:5]
+        summary = ", ".join(
+            f"{_midi_to_note_name(n['midi'])}@{n.get('time', 0)}" for n in notes[:5]
         )
-        if note_count > 5:
-            note_summary += f", ... ({note_count - 5} more)"
-
-        return f"Queued {note_count} note(s): {note_summary}.{trigger_info}"
+        if len(notes) > 5:
+            summary += f", ... ({len(notes) - 5} more)"
+        landed = result.get("notes_added", 0)
+        return f"Added {landed} note(s): {summary}.{_trigger_note()}"
 
     @mcp.tool()
     def fl_send_chord(
@@ -183,159 +251,109 @@ def register_piano_roll_tools(mcp: FastMCP) -> None:
         time: float = 0,
         duration: float = 1.0,
         velocity: float = 0.8,
-        auto_trigger: bool = True
+        auto_trigger: bool = True,
     ) -> str:
         """Add a chord (multiple simultaneous notes) to the FL Studio piano roll.
 
-        This is a convenience function for adding multiple notes at the same time
-        with the same duration. For more control, use fl_send_notes.
-
         Args:
-            midi_notes: List of MIDI note numbers (e.g., [60, 64, 67] for C major)
+            midi_notes: List of MIDI note numbers (e.g. [60, 64, 67] for C major)
             time: Start position in quarter notes (default 0)
             duration: Length in quarter notes for all notes (default 1.0)
             velocity: Velocity 0.0-1.0 for all notes (default 0.8)
-            auto_trigger: Whether to automatically trigger FL Studio
+            auto_trigger: Whether to trigger FL Studio automatically
 
-        Example - C major chord at beat 0:
+        Example:
             fl_send_chord([60, 64, 67], time=0, duration=1.0)
-
-        Example - Am7 chord at beat 2:
-            fl_send_chord([57, 60, 64, 67], time=2, duration=2.0)
         """
         if not midi_notes:
-            return "Error: No MIDI notes provided"
+            raise ValueError("No MIDI notes provided")
 
-        # Build chord notes with velocity included
-        chord_notes = [
-            {"midi": midi, "velocity": velocity}
-            for midi in midi_notes
-        ]
-
-        request = {
+        result = send_request({
             "action": "add_chord",
             "time": time,
             "duration": duration,
-            "notes": chord_notes
-        }
+            "notes": [{"midi": midi, "velocity": velocity} for midi in midi_notes],
+        })
+        if not result.get("success"):
+            return f"Chord did not land: {result.get('error')}"
 
-        _write_request(request)
-
-        trigger_info = _get_trigger_info(auto_trigger)
-        note_names = ", ".join(_midi_to_note_name(n) for n in midi_notes)
-        return f"Queued chord [{note_names}] at beat {time}, duration {duration}.{trigger_info}"
+        names = ", ".join(_midi_to_note_name(n) for n in midi_notes)
+        return (
+            f"Added chord [{names}] at beat {time}, duration {duration}."
+            f"{_trigger_note()}"
+        )
 
     @mcp.tool()
-    def fl_delete_notes(
-        notes: list[dict],
-        auto_trigger: bool = True
-    ) -> str:
+    def fl_delete_notes(notes: list[dict], auto_trigger: bool = True) -> str:
         """Delete specific notes from the FL Studio piano roll.
 
         Args:
-            notes: List of notes to delete, matching by midi and time:
+            notes: List of notes to delete, matching on midi and time:
                    - midi (int): MIDI note number
                    - time (float): Start position in quarter notes
-            auto_trigger: Whether to automatically trigger FL Studio
+            auto_trigger: Whether to trigger FL Studio automatically
 
         Example:
             [{"midi": 60, "time": 0}, {"midi": 64, "time": 0}]
         """
         if not notes:
-            return "Error: No notes specified for deletion"
+            raise ValueError("No notes specified for deletion")
 
-        request = {
-            "action": "delete_notes",
-            "notes": notes
-        }
-        _write_request(request)
+        result = send_request({"action": "delete_notes", "notes": notes})
+        if not result.get("success"):
+            return f"Deletion failed: {result.get('error')}"
 
-        trigger_info = _get_trigger_info(auto_trigger)
-        return f"Queued deletion of {len(notes)} note(s).{trigger_info}"
+        deleted = result.get("notes_deleted", 0)
+        if deleted == 0:
+            return (
+                "Nothing matched those notes. Check the pitch and the time, and "
+                "note that time is in quarter notes, not ticks."
+            )
+        return f"Deleted {deleted} note(s).{_trigger_note()}"
 
     @mcp.tool()
     def fl_clear_piano_roll(auto_trigger: bool = True) -> str:
         """Clear all notes from the FL Studio piano roll.
 
         Args:
-            auto_trigger: Whether to automatically trigger FL Studio
+            auto_trigger: Whether to trigger FL Studio automatically
         """
-        request = {"action": "clear"}
-        _write_request(request)
-
-        trigger_info = _get_trigger_info(auto_trigger)
-        return f"Queued clear all notes.{trigger_info}"
+        result = send_request({"action": "clear"})
+        if not result.get("success"):
+            return f"Could not clear the piano roll: {result.get('error')}"
+        return f"Cleared {result.get('notes_deleted', 0)} note(s).{_trigger_note()}"
 
     @mcp.tool()
     def fl_get_piano_roll_state() -> dict:
-        """Get the current state of notes in the FL Studio piano roll.
+        """Get the notes currently in the FL Studio piano roll, refreshed.
 
-        Returns a dictionary containing:
-        - ppq: Pulses per quarter note (ticks per beat)
-        - notes: List of all notes with their properties
+        Triggers FL Studio to export the current state before reading it, so the
+        result describes the piano roll now rather than whatever the last run
+        happened to leave behind.
 
-        Note: This reads from the last exported state. Trigger FL Studio
-        (Cmd+Opt+Y on macOS) to refresh the state file after making changes.
+        Returns:
+            ppq: Pulses per quarter note, which is ticks per beat
+            noteCount: How many notes the piano roll holds
+            notes: Every note, with all sixteen flpianoroll properties
         """
-        state = _read_state()
-
-        if state is None:
-            return {
-                "error": "No piano roll state available. Make sure FL Studio's "
-                         "ComposeWithLLM script has been run at least once."
-            }
-
-        # Add human-readable note names
-        if "notes" in state:
-            for note in state["notes"]:
-                if "midi" in note:
-                    note["note_name"] = _midi_to_note_name(note["midi"])
-
-        return state
-
-    @mcp.tool()
-    def fl_clear_request_queue() -> str:
-        """Clear any pending note requests without executing them.
-
-        Use this if you want to cancel queued changes before triggering FL Studio.
-        """
-        _clear_request_file()
-        return "Request queue cleared."
-
-    @mcp.tool()
-    def fl_trigger_script() -> str:
-        """Manually trigger FL Studio to process pending note requests.
-
-        This sends the keystroke (Cmd+Opt+Y on macOS, Ctrl+Alt+Y on Windows)
-        to FL Studio to execute the ComposeWithLLM piano roll script.
-        """
-        trigger = get_trigger()
-
-        if not trigger.is_supported:
-            return f"Error: Auto-trigger not supported on {trigger.platform}"
-
-        success = trigger_fl_studio()
-
-        if success:
-            return "FL Studio triggered successfully. Notes should now appear in the piano roll."
-        else:
-            return f"Failed to trigger FL Studio. Try pressing {trigger.keystroke} manually."
+        return refresh_and_read_state()
 
     @mcp.tool()
     def fl_get_piano_roll_info() -> dict:
         """Get information about the Piano Roll integration status.
 
-        Returns platform info, file paths, and whether auto-triggering is supported.
+        Returns platform info, file paths, and whether auto-triggering works.
         """
         trigger = get_trigger()
-
         return {
             "platform": trigger.platform,
             "auto_trigger_supported": trigger.is_supported,
             "trigger_keystroke": trigger.keystroke,
             "scripts_dir": str(piano_roll_scripts_dir()),
-            "request_file": str(_get_request_file()),
-            "state_file": str(_get_state_file()),
-            "request_file_exists": _get_request_file().exists(),
-            "state_file_exists": _get_state_file().exists(),
+            "request_file": str(_request_file()),
+            "response_file": str(_response_file()),
+            "state_file": str(_state_file()),
+            "request_file_exists": _request_file().exists(),
+            "response_file_exists": _response_file().exists(),
+            "state_file_exists": _state_file().exists(),
         }
