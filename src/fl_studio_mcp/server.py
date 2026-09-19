@@ -36,6 +36,7 @@ from fl_studio_mcp.tools import (
     register_piano_roll_tools,
     register_plugin_tools,
     register_project_tools,
+    register_review_tools,
     register_routing_tools,
     register_score_tools,
     register_tempo_tools,
@@ -205,6 +206,7 @@ register_tempo_tools(mcp)
 register_score_tools(mcp)
 register_describe_tools(mcp)
 register_metering_tools(mcp)
+register_review_tools(mcp)
 
 
 def main():

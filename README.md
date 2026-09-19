@@ -103,6 +103,21 @@ FL's piano roll notes carry sixteen properties, and this server writes all of th
 
 Every piano roll tool takes a `channel`, and a failed or mismatched target is refused rather than triggered, so notes cannot land in an unknown piano roll.
 
+## Mix Review And Gain Staging
+
+| Tool | What it answers |
+|------|-----------------|
+| `fl_mix_review` | What in this mix needs attention |
+| `fl_gain_staging` | Which faders are over a target, and by how much |
+
+The review reports two kinds of thing. The settings findings need no playback: a track with no sends, every fader left at FL's own default of 0.8, everything panned centre. The level findings need the project to be playing: what clips, and what is routed into a track that never sounds.
+
+**A peak hold is not a loudness measurement.** It finds clipping and silence. It cannot tell you that a track is too loud in the sense a listener means, because that needs the audio, and capturing audio is not supported. Peak and loudness disagree in both directions: a spiky drum bus peaks high and sounds quiet, a compressed pad peaks low and sounds loud. Anything that claims to match the loudness of two tracks from peak levels is wrong.
+
+`fl_gain_staging` only trims down, and only reports until you pass `apply=True`. Raising a quiet track would fight the balance you already set, which is your decision rather than a peak reading's. When it does apply, the whole pass is one `fl_batch`, so one undo reverses it.
+
+Sampling while the transport is stopped is refused by both tools. Every reading would be zero, and zero is indistinguishable from a track routed nowhere, so a review would report a silent mix as a routing problem with complete confidence.
+
 ## Musical Helpers
 
 These are arithmetic over note dictionaries, so none of them needs FL Studio running, and all of them are covered by tests on a machine with no DAW installed.
@@ -396,6 +411,8 @@ fl-studio-mcp
 | `fl_set_routing` | Route a mixer track to other tracks, or remove its routings |
 | `fl_get_levels` | Read peak levels, to find what clips and what never sounds |
 | `fl_sample_levels` | Sample peak levels over a window while the project plays |
+| `fl_mix_review` | Review the mix and report what needs attention |
+| `fl_gain_staging` | Trim the tracks peaking above a target, reporting before it acts |
 
 ### Mixer EQ
 
