@@ -114,6 +114,15 @@ This is the only path that nothing but a human can test: it needs the keystroke,
 the Accessibility permission, and the real `flpianoroll`.
 
 - [ ] Open a piano roll on a named channel by hand, so the target is not in doubt.
+- [ ] `fl_send_notes(channel=N, ...)` where N is not the channel whose piano roll is
+      open, and confirm the notes appear on N and the reply names N. Catches
+      targeting that selects the channel but does not move the window, which is
+      the failure this item exists for.
+- [ ] `fl_send_notes(channel=N, verify=True, ...)` and confirm the reply says the
+      notes were read back. Catches a script that reports notes it did not add.
+- [ ] `fl_get_piano_roll_state(channel=N)` and confirm it holds the notes just
+      written, and that a different channel holds different notes. Catches reading
+      one piano roll and reporting another.
 - [ ] `fl_send_notes` a short phrase and confirm the notes appear on that channel.
       Catches notes landing in whichever piano roll happened to be focused, which
       is Phase 2's targeting work.
@@ -148,6 +157,31 @@ Both must be covered before a release. Windows needs the extra step.
 Note the date, the FL Studio version, the API version, and any item that failed,
 in the commit message or the pull request description. A smoke test with no record
 is a rumour.
+
+### 2026-09-19, Phase 2
+
+FL Studio 2026, Producer Edition v26.1.6 build 5406, API version 45, macOS 26,
+Apple silicon.
+
+Passed, against live FL Studio:
+
+- Targeting: `channels.selectPianoRoll` selected the right channel every time
+  (index 2 gave 808 HiHat, index 1 gave 808 Clap, index 0 gave 808 Kick) and
+  reported the selection it achieved. An index outside the project was refused
+  with the real range: "this project has 5 channels, indexed 0 to 4".
+- The roadmap's done-condition: `fl_send_notes(channel=2, verify=True)` returned
+  `success: true`, `target_channel: 2`, `target_channel_name: "808 HiHat"`,
+  `verified: true`, `verified_notes: 2`, and the user confirmed D4 and F4 appeared
+  on the 808 HiHat piano roll rather than wherever focus happened to be.
+- The read-back was genuinely independent: the state export reported 2 notes at
+  that moment, and reported 0 afterwards once the user undid the write with
+  Ctrl+Z. One Ctrl+Z removed both notes.
+
+Not run:
+
+- Auto-trigger keystroke, still blocked by macOS Accessibility error 1002, so the
+  trigger was the Piano roll scripts menu throughout.
+- Windows, and Windows with a OneDrive-redirected Documents folder. No machine.
 
 ### 2026-09-19, Phase 1
 

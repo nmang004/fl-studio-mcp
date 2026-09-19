@@ -102,6 +102,7 @@ def send_request(
     timeout: float = RESPONSE_TIMEOUT,
     wait_for_manual_trigger: float = 0.0,
     channel: int | None = None,
+    verify: bool = False,
 ) -> dict:
     """Send one request to the piano roll script and return its reply.
 
@@ -122,6 +123,9 @@ def send_request(
             selected and its piano roll opened first, and the script is not
             triggered unless FL confirms the selection. Without it, the notes go
             to whichever piano roll has focus, which is why the reply says so.
+        verify: Read the piano roll back after the write and report whether the
+            notes are actually there. Costs a second script run, so it is off by
+            default, but a caller that needs to be sure should turn it on.
 
     Returns:
         The script's reply, or a dict with "success": False and a specific
@@ -192,7 +196,17 @@ def send_request(
     while time.time() < deadline:
         reply = _read_reply(response_file)
         if reply is not None and reply.get("id") in (None, request["id"]):
-            return {**reply, **target_info}
+            result = {**reply, **target_info}
+            if verify:
+                # The script reports what it did; this reads what is there. A
+                # script that ran against a different piano roll than the caller
+                # intended reports its own success honestly and is still wrong.
+                confirmed = _verify_notes_landed(result)
+                result.update(confirmed)
+                if confirmed.get("verified") is False:
+                    result["success"] = False
+                    result["error"] = confirmed["error"]
+            return result
         time.sleep(POLL_INTERVAL)
 
     if trigger_error:
@@ -213,6 +227,38 @@ def send_request(
             "has Accessibility permission to send the trigger keystroke."
         ),
     }
+
+
+def _verify_notes_landed(reply: dict) -> dict:
+    """Read the piano roll back and check that the notes are actually there.
+
+    The script's own export is the only view of the notes that exists: flpianoroll
+    exposes no channel identity, and the controller cannot read notes at all. What
+    this adds is that the note count is read after the write rather than taken
+    from the reply that claims the write happened.
+    """
+    state = read_state()
+    if state is None:
+        return {
+            "verified": False,
+            "error": (
+                "The script replied but exported no piano roll state, so the notes "
+                "could not be confirmed."
+            ),
+        }
+
+    added = reply.get("notes_added") or 0
+    count = state.get("noteCount", 0)
+    if added and count <= 0:
+        return {
+            "verified": False,
+            "error": (
+                f"The script reported adding {added} note(s) but the piano roll it "
+                "exported holds none, so the notes did not land where they were "
+                "reported to."
+            ),
+        }
+    return {"verified": True, "verified_notes": count}
 
 
 def read_state() -> dict | None:
@@ -284,6 +330,7 @@ def register_piano_roll_tools(mcp: FastMCP) -> None:
         notes: list[dict],
         channel: int | None = None,
         mode: str = "add",
+        verify: bool = False,
     ) -> str:
         """Add or replace notes in the FL Studio piano roll.
 
@@ -308,6 +355,9 @@ def register_piano_roll_tools(mcp: FastMCP) -> None:
                      window shows whichever channel is selected, so without it the
                      notes land in whichever piano roll happens to have focus. The
                      reply names the channel that was targeted.
+            verify: Read the notes back after writing and confirm they are there.
+                    Costs one extra script run. Turn it on when it matters that
+                    the notes landed rather than that the script claimed they did.
 
         Reports what actually landed, read back from FL Studio, or a specific
         failure. It does not report success it has not confirmed.
@@ -339,6 +389,7 @@ def register_piano_roll_tools(mcp: FastMCP) -> None:
             {"action": "add_notes", "notes": notes},
             wait_for_manual_trigger=RESPONSE_TIMEOUT,
             channel=channel,
+            verify=verify,
         )
         if not result.get("success"):
             return f"Notes did not land: {result.get('error')}"
@@ -349,7 +400,13 @@ def register_piano_roll_tools(mcp: FastMCP) -> None:
         if len(notes) > 5:
             summary += f", ... ({len(notes) - 5} more)"
         landed = result.get("notes_added", 0)
-        return f"Added {landed} note(s): {summary}.{_target_note(result)}"
+        confirmed = ""
+        if result.get("verified"):
+            confirmed = (
+                f" Read back and confirmed: the piano roll holds "
+                f"{result.get('verified_notes')} note(s)."
+            )
+        return f"Added {landed} note(s): {summary}.{_target_note(result)}{confirmed}"
 
     @mcp.tool()
     def fl_send_chord(

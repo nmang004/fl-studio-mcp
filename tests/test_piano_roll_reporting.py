@@ -87,3 +87,38 @@ def test_the_tools_mention_the_channel_in_their_result(fl_env, monkeypatch):
 
     result = piano_roll.send_request({"action": "clear"}, timeout=1.0, channel=2)
     assert piano_roll._target_note(result) == " Channel 2 (Channel 3)."
+
+
+def test_the_notes_tool_offers_verification():
+    """The read-back the roadmap asks for has to be reachable from the surface."""
+    params = inspect.signature(_tool("fl_send_notes")).parameters
+    assert "verify" in params
+    assert "verify" in (_tool("fl_send_notes").__doc__ or "")
+
+
+def test_a_verified_write_says_it_was_confirmed(fl_env, monkeypatch):
+    """The confirmation appears in the string the caller reads."""
+    from fl_studio_mcp.utils.midi_connection import MIDIConnection
+
+    conn = MIDIConnection()
+    conn._command_file = fl_env.command_file
+    conn._response_file = fl_env.response_file
+    conn._port = fl_env.midi_port
+    conn._connected = True
+
+    monkeypatch.setattr(piano_roll, "get_connection", lambda: conn, raising=False)
+    monkeypatch.setattr(piano_roll, "piano_roll_scripts_dir", lambda: fl_env.piano_roll_dir)
+    monkeypatch.setattr(
+        piano_roll, "trigger_fl_studio", lambda delay=0: (fl_env.pyscript.apply(), True)[1]
+    )
+
+    result = piano_roll.send_request(
+        {"action": "add_notes", "notes": [{"midi": 60, "time": 0.0, "duration": 1.0}]},
+        timeout=1.0,
+        channel=2,
+        verify=True,
+    )
+    assert result["verified"] is True
+    assert result["verified_notes"] == 1
+    assert "_target_note" in dir(piano_roll)
+    assert "Channel 2" in piano_roll._target_note(result)
