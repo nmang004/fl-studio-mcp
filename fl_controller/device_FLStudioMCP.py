@@ -201,6 +201,14 @@ def _route_command(action: str, params: dict) -> dict:
     elif action == "system.batch":
         return handle_system_batch(params)
 
+    # Routing and metering commands
+    elif action == "mixer.getRouting":
+        return handle_mixer_get_routing(params)
+    elif action == "mixer.setRouting":
+        return handle_mixer_set_routing(params)
+    elif action == "mixer.getLevels":
+        return handle_mixer_get_levels(params)
+
     # EQ commands
     elif action == "mixer.getEq":
         return handle_mixer_get_eq(params)
@@ -538,6 +546,7 @@ MUTATING_ACTIONS = frozenset([
     "mixer.armTrack",
     "mixer.muteTrack",
     "mixer.setEqBands",
+    "mixer.setRouting",
     "mixer.setStereoSep",
     "mixer.setTrackColor",
     "mixer.setTrackName",
@@ -810,6 +819,171 @@ def handle_transport_set_playback_speed(params: dict) -> dict:
 # =============================================================================
 # Mixer Handlers
 # =============================================================================
+
+
+# From the stubs: mixer.getTrackPeaks modes. 2 is the maximum of left and right.
+MIXER_PEAK_LEFT = 0
+MIXER_PEAK_RIGHT = 1
+MIXER_PEAK_MAX = 2
+
+# =============================================================================
+# Routing and Metering Handlers
+# =============================================================================
+
+
+def _routing_snapshot(track: int) -> dict:
+    """Where a track sends.
+
+    There is no function that lists a track's destinations, so every candidate is
+    asked whether it is an active send. That is one call per track per read, which
+    is why the caller-facing tool reports one track by default rather than all of
+    them.
+    """
+    sends = []
+    for destination in range(mixer.trackCount()):
+        if destination == track:
+            continue
+        try:
+            active = bool(mixer.getRouteSendActive(track, destination))
+        except Exception:
+            continue
+        if not active:
+            continue
+        try:
+            level = mixer.getRouteToLevel(track, destination)
+        except Exception:
+            level = None
+        sends.append({
+            "track": destination,
+            "name": mixer.getTrackName(destination),
+            "level": level,
+            "active": True,
+        })
+    return {
+        "track": track,
+        "name": mixer.getTrackName(track),
+        "sends": sends,
+    }
+
+
+def handle_mixer_get_routing(params: dict) -> dict:
+    """Report where a mixer track sends, or where every track sends."""
+    track = params.get("track")
+    if track is None:
+        return {
+            "tracks": [_routing_snapshot(i) for i in range(mixer.trackCount())]
+        }
+    track = int(track)
+    refusal = _check_track_index(track, "mixer.getRouting")
+    if refusal is not None:
+        return refusal
+    return _routing_snapshot(track)
+
+
+def handle_mixer_set_routing(params: dict) -> dict:
+    """Route a track to destinations, or remove those routings.
+
+    Only the destinations the caller names are touched, so a send they did not
+    mention keeps its level. A track routing into itself is refused, because that
+    is a feedback loop rather than a routing decision.
+    """
+    track = _require(params, "track", "mixer.setRouting")
+    sends = params.get("sends")
+    if not isinstance(sends, list) or not sends:
+        return {"error": "mixer.setRouting requires a non-empty 'sends' list"}
+
+    refusal = _check_track_index(track, "mixer.setRouting")
+    if refusal is not None:
+        return refusal
+
+    count = mixer.trackCount()
+    for entry in sends:
+        if not isinstance(entry, dict) or "track" not in entry:
+            return {"error": "mixer.setRouting: every entry needs a 'track'"}
+        destination = int(entry["track"])
+        if not 0 <= destination < count:
+            return {
+                "error": (
+                    "mixer.setRouting: destination %d does not exist. This project "
+                    "has %d tracks, indexed 0 to %d."
+                    % (destination, count, count - 1)
+                )
+            }
+        if destination == track:
+            return {
+                "error": (
+                    "mixer.setRouting: track %d cannot send to itself, which would "
+                    "be a feedback loop." % track
+                )
+            }
+
+        if entry.get("remove"):
+            mixer.setRouteTo(track, destination, 0)
+        else:
+            mixer.setRouteTo(track, destination, 1)
+            if "level" in entry:
+                mixer.setRouteToLevel(track, destination, float(entry["level"]))
+
+    return _routing_snapshot(track)
+
+
+def handle_mixer_get_levels(params: dict) -> dict:
+    """Sample peak levels, reporting the loudest value seen per track.
+
+    mixer.getTrackPeaks returns the value right now: 0.0 is silence, 1.0 is 0 dB,
+    and above 1.0 is clipping. Several readings are taken back to back and the
+    loudest is kept, because one reading while stopped is always silence.
+
+    The readings are back to back rather than spaced in time, because the
+    controller runs on FL's MIDI thread and sleeping there would stall FL. A
+    caller wanting a window longer than a few milliseconds should call this
+    repeatedly during playback and keep the loudest result itself.
+    """
+    tracks = params.get("tracks")
+    if tracks is None:
+        tracks = list(range(mixer.trackCount()))
+    if not isinstance(tracks, list) or not tracks:
+        return {"error": "mixer.getLevels: 'tracks' must be a non-empty list"}
+
+    samples = params.get("samples", 1)
+    try:
+        samples = int(samples)
+    except (TypeError, ValueError):
+        return {"error": "mixer.getLevels: 'samples' must be a whole number"}
+    if samples < 1:
+        return {"error": "mixer.getLevels: 'samples' must be at least 1"}
+
+    count = mixer.trackCount()
+    for index in tracks:
+        if not 0 <= int(index) < count:
+            return {
+                "error": (
+                    "mixer.getLevels: track %s does not exist. This project has %d "
+                    "tracks, indexed 0 to %d." % (index, count, count - 1)
+                )
+            }
+
+    levels = []
+    for index in tracks:
+        index = int(index)
+        peak = 0.0
+        for _ in range(samples):
+            try:
+                # Mode 2 is the maximum of left and right, which is what a level
+                # meter shows.
+                reading = mixer.getTrackPeaks(index, MIXER_PEAK_MAX)
+            except Exception:
+                reading = 0.0
+            if reading > peak:
+                peak = reading
+        levels.append({
+            "track": index,
+            "name": mixer.getTrackName(index),
+            "peak": peak,
+            "clipping": peak > 1.0,
+        })
+
+    return {"levels": levels, "samples": samples}
 
 
 # =============================================================================
