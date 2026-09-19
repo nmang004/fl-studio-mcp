@@ -15,8 +15,13 @@ from pathlib import Path
 import pytest
 
 from tests import fakes
+from tests.fakes.midi import FakeMidiModule, FakeMidiPort
 from tests.fakes.project import FakeProject
 from tests.helpers import load_controller, load_pyscript
+
+# The controller's own trigger note. Kept here rather than imported from the
+# script under test, so the fake cable cannot agree with a broken constant.
+TRIGGER_NOTE = 127
 
 
 class Harness:
@@ -120,7 +125,7 @@ def make_project() -> FakeProject:
 
 @pytest.fixture
 def fl_env(fl_settings, monkeypatch):
-    """A fake FL, the two real scripts, and a temporary settings tree."""
+    """A fake FL, the two real scripts, a fake MIDI cable, and a temp settings tree."""
     project = make_project()
     modules = fakes.install(project)
     # The fakes are passed explicitly: load_controller installs empty stand-ins
@@ -135,6 +140,19 @@ def fl_env(fl_settings, monkeypatch):
         controller=controller,
         pyscript=pyscript,
     )
+
+    def on_send(message) -> None:
+        """Deliver a trigger note to the controller, the way FL would.
+
+        This is the whole of the fake transport. Everything else in the round
+        trip is the real code reading and writing the real files.
+        """
+        if getattr(message, "type", None) == "note_on" and message.note == TRIGGER_NOTE:
+            harness.trigger_count += 1
+            harness.controller.execute_pending_command()
+
+    harness.midi_port = FakeMidiPort("FL Studio MCP", on_send)
+    monkeypatch.setitem(sys.modules, "mido", FakeMidiModule(harness.midi_port))
     try:
         yield harness
     finally:
