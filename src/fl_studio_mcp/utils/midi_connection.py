@@ -87,6 +87,71 @@ def _get_fl_hardware_dir() -> Path:
     return hardware_dir()
 
 
+class _NotReady:
+    """Sentinel for "the response file is not finished yet"."""
+
+    def __repr__(self) -> str:
+        return "NOT_READY"
+
+
+# Returned by MIDIResponseReader.read() while a response is still being written.
+NOT_READY = _NotReady()
+
+
+class MIDIResponseReader:
+    """Reads a response file that may be caught mid write.
+
+    FL Studio's embedded Python sandbox disables the rename syscalls: `os.replace`
+    and `os.rename` both raise `SystemError: <built-in function replace> returned
+    NULL without setting an exception` on FL Studio 2026, build 5406, which
+    bundles CPython 3.12.1. The controller therefore cannot write a response
+    atomically, and truncates and rewrites the file in place.
+
+    The response format is one JSON object followed by a newline, so a complete
+    response always ends with "}". A file that does not is either empty or still
+    being written, which is a reason to keep waiting rather than an error. A
+    response that is complete but wrong is a real error and is reported as one.
+    """
+
+    def __init__(self, path: Path) -> None:
+        self._path = path
+
+    def read(self) -> dict[str, Any] | _NotReady:
+        """Read the response, or return NOT_READY if it is not complete yet.
+
+        Returns:
+            The parsed response, which always carries a "success" key, or
+            NOT_READY when the file is missing, empty, or still being written.
+        """
+        try:
+            text = self._path.read_text()
+        except OSError:
+            # Missing, or not readable yet.
+            return NOT_READY
+
+        try:
+            parsed = json.loads(text)
+        except json.JSONDecodeError:
+            # Valid JSON always closes, and this does not parse, so if the text
+            # ends with a brace it is malformed rather than unfinished. Anything
+            # else, including an empty file, is a write still in flight.
+            if text.strip().endswith("}"):
+                return {"success": False, "error": f"Invalid JSON in response: {text.strip()}"}
+            return NOT_READY
+
+        if not isinstance(parsed, dict):
+            return {
+                "success": False,
+                "error": f"Response was {type(parsed).__name__}, not an object",
+            }
+        if "success" not in parsed:
+            return {
+                "success": False,
+                "error": f"Response had no success field: {parsed}",
+            }
+        return parsed
+
+
 class MIDIConnection:
     """MIDI-based connection to FL Studio.
 
@@ -288,25 +353,19 @@ class MIDIConnection:
         # asleep. Poll tightly at first, then back off so a genuinely slow or
         # absent FL does not spin a core for the whole timeout.
         fast_poll_until = start_time + 0.1
+        reader = MIDIResponseReader(self._response_file)
 
         while time.time() - start_time < timeout:
             poll_interval = 0.0005 if time.time() < fast_poll_until else 0.02
-            if self._response_file.exists():
+            response = reader.read()
+            if response is not NOT_READY:
+                # Clean up response file
                 try:
-                    response_text = self._response_file.read_text()
-                    response = json.loads(response_text)
+                    self._response_file.unlink()
+                except Exception:
+                    pass
 
-                    # Clean up response file
-                    try:
-                        self._response_file.unlink()
-                    except Exception:
-                        pass
-
-                    return response
-                except json.JSONDecodeError as e:
-                    return {"success": False, "error": f"Invalid JSON in response: {e}"}
-                except Exception as e:
-                    return {"success": False, "error": f"Failed to read response: {e}"}
+                return response
 
             time.sleep(poll_interval)
 

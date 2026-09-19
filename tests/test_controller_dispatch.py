@@ -12,17 +12,14 @@ import json
 from tests.helpers import load_controller, module_with
 
 
-def test_unknown_action_reports_an_error(monkeypatch, tmp_path):
-    monkeypatch.setenv("FL_STUDIO_MCP_SETTINGS_DIR", str(tmp_path))
-    controller = load_controller(monkeypatch)
+def test_unknown_action_reports_an_error(controller):
     result = controller.dispatch_command("bogus.doesNotExist", {})
     assert "error" in result
     assert "bogus.doesNotExist" in result["error"]
 
 
-def test_system_get_info_survives_a_missing_safe_to_edit(monkeypatch, tmp_path):
+def test_system_get_info_survives_a_missing_safe_to_edit(fl_settings, monkeypatch):
     """An older FL without API 29 must not make the whole info action fail."""
-    monkeypatch.setenv("FL_STUDIO_MCP_SETTINGS_DIR", str(tmp_path))
     controller = load_controller(
         monkeypatch,
         {
@@ -40,8 +37,7 @@ def test_system_get_info_survives_a_missing_safe_to_edit(monkeypatch, tmp_path):
     assert info["capabilities"]["getCurrentTempo"] == 130000
 
 
-def test_system_get_info_reports_safe_to_edit_when_present(monkeypatch, tmp_path):
-    monkeypatch.setenv("FL_STUDIO_MCP_SETTINGS_DIR", str(tmp_path))
+def test_system_get_info_reports_safe_to_edit_when_present(fl_settings, monkeypatch):
     controller = load_controller(
         monkeypatch,
         {"general": module_with(getVersion=lambda: 45, safeToEdit=lambda: 1)},
@@ -56,56 +52,54 @@ def _run_pending(controller, command: dict) -> dict:
     return json.loads(controller.RESPONSE_FILE.read_text())
 
 
-def test_unknown_action_through_the_file_path_is_not_a_success(monkeypatch, tmp_path):
+def test_unknown_action_through_the_file_path_is_not_a_success(controller):
     """The exact live bug: success True sitting next to an error string."""
-    monkeypatch.setenv("FL_STUDIO_MCP_SETTINGS_DIR", str(tmp_path))
-    controller = load_controller(monkeypatch)
     response = _run_pending(controller, {"action": "bogus.doesNotExist", "params": {}})
     assert response["success"] is False
     assert response["error"]
 
 
-def test_a_good_command_through_the_file_path_is_a_success(monkeypatch, tmp_path):
-    monkeypatch.setenv("FL_STUDIO_MCP_SETTINGS_DIR", str(tmp_path))
+def test_a_good_command_through_the_file_path_is_a_success(fl_settings, monkeypatch):
     controller = load_controller(monkeypatch, {"mixer": module_with(trackCount=lambda: 7)})
     response = _run_pending(controller, {"action": "mixer.getTrackCount", "params": {}})
     assert response["success"] is True
     assert response["count"] == 7
 
 
-def test_a_missing_command_file_reports_failure(monkeypatch, tmp_path):
-    monkeypatch.setenv("FL_STUDIO_MCP_SETTINGS_DIR", str(tmp_path))
-    controller = load_controller(monkeypatch)
+def test_the_response_carries_the_request_id_through(fl_settings, monkeypatch):
+    """Phase 1 correlates on this field, so the controller has to echo it."""
+    controller = load_controller(monkeypatch, {"mixer": module_with(trackCount=lambda: 7)})
+    response = _run_pending(
+        controller, {"action": "mixer.getTrackCount", "params": {}, "id": "req-42"}
+    )
+    assert response["id"] == "req-42"
+
+
+def test_a_missing_command_file_reports_failure(controller):
     controller.execute_pending_command()
     response = json.loads(controller.RESPONSE_FILE.read_text())
     assert response["success"] is False
     assert "No command file" in response["error"]
 
 
-def test_invalid_json_reports_failure(monkeypatch, tmp_path):
-    monkeypatch.setenv("FL_STUDIO_MCP_SETTINGS_DIR", str(tmp_path))
-    controller = load_controller(monkeypatch)
+def test_invalid_json_reports_failure(controller):
     controller.COMMAND_FILE.write_text("{not json")
     controller.execute_pending_command()
     response = json.loads(controller.RESPONSE_FILE.read_text())
     assert response["success"] is False
 
 
-def test_a_handler_exception_reports_failure_not_a_crash(monkeypatch, tmp_path):
+def test_a_handler_exception_reports_failure_not_a_crash(fl_settings, monkeypatch):
     def explode():
         raise RuntimeError("boom")
 
-    monkeypatch.setenv("FL_STUDIO_MCP_SETTINGS_DIR", str(tmp_path))
     controller = load_controller(monkeypatch, {"mixer": module_with(trackCount=explode)})
     response = _run_pending(controller, {"action": "mixer.getTrackCount", "params": {}})
     assert response["success"] is False
     assert "boom" in response["error"]
 
 
-def test_response_is_written_whole(monkeypatch, tmp_path):
-    """The poller reads the file the instant it exists, so it must never be partial."""
-    monkeypatch.setenv("FL_STUDIO_MCP_SETTINGS_DIR", str(tmp_path))
-    controller = load_controller(monkeypatch, {"mixer": module_with(trackCount=lambda: 7)})
-    _run_pending(controller, {"action": "mixer.getTrackCount", "params": {}})
-    assert controller.RESPONSE_FILE.exists()
-    assert not controller.RESPONSE_FILE.with_suffix(".json.tmp").exists()
+def test_the_response_file_ends_with_a_newline(controller):
+    """The server uses the terminator to tell complete from still being written."""
+    _run_pending(controller, {"action": "bogus.doesNotExist", "params": {}})
+    assert controller.RESPONSE_FILE.read_text().endswith("}\n")

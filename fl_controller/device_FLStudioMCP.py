@@ -66,8 +66,16 @@ def _get_settings_dir() -> Path:
 
 
 # File paths for JSON communication
+#
+# This directory is not created here, and must not be: FL Studio's Python
+# sandbox blocks Path.mkdir, os.makedirs, os.replace, os.rename, os.remove,
+# Path.unlink, Path.glob and open() with "SystemError: <...> returned NULL
+# without setting an exception". A blocked call at module scope stops the script
+# from importing at all, which looks exactly like FL Studio not running. The
+# server creates this directory with fl_studio_mcp.utils.paths.hardware_dir(),
+# and the installer puts this script inside it. Path.write_text is the one write
+# that works, which is why responses are written rather than renamed into place.
 SCRIPT_DIR = _get_settings_dir() / "Hardware" / "FLStudioMCP"
-SCRIPT_DIR.mkdir(parents=True, exist_ok=True)
 COMMAND_FILE = SCRIPT_DIR / "mcp_command.json"
 RESPONSE_FILE = SCRIPT_DIR / "mcp_response.json"
 
@@ -137,16 +145,17 @@ def execute_pending_command():
 
 
 def write_response(response: dict):
-    """Write response to JSON file, atomically.
+    """Write response to JSON file.
 
-    The server polls for this file and reads it the moment it exists, so a plain
-    write can be observed half finished and fail to parse. Writing beside the
-    target and then os.replace makes the swap atomic on both platforms.
+    The response ends with a newline so the polling server can tell a finished
+    response from one it caught mid write. See
+    fl_studio_mcp.utils.midi_connection.MIDIResponseReader for why the write
+    cannot be made atomic from inside FL: the sandbox disables the rename
+    syscalls, so os.replace and os.rename both raise SystemError here. Writing
+    through a Path is the one form of file write this sandbox allows.
     """
     try:
-        temporary = RESPONSE_FILE.with_suffix(".json.tmp")
-        temporary.write_text(json.dumps(response, indent=2))
-        os.replace(temporary, RESPONSE_FILE)
+        RESPONSE_FILE.write_text(json.dumps(response, indent=2) + "\n")
     except Exception as e:
         print(f"Error writing response: {e}")
 
