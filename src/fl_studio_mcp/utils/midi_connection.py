@@ -14,10 +14,64 @@ instead of keystrokes.
 from __future__ import annotations
 
 import json
+import os
 import platform
 import time
 from pathlib import Path
 from typing import Any
+
+# Name of the virtual MIDI port the server creates for itself on platforms that
+# support one. FL Studio sees this as an ordinary MIDI input device, so no IAC
+# Driver (macOS) setup is needed.
+VIRTUAL_PORT_NAME = "FL Studio MCP"
+
+# Substrings identifying a virtual MIDI port that is plausibly wired to FL Studio.
+# A port must match one of these to be used automatically. Never fall back to
+# "first available port": on a typical machine that is real hardware, and the
+# trigger note would be sent to the user's keyboard or audio interface.
+KNOWN_PORT_HINTS = ("IAC", "LOOPMIDI", "FL STUDIO MCP")
+
+# FL Studio does not bind to a virtual MIDI port the instant it appears. Measured
+# on FL Studio 2026 / macOS 26: binding completed between 2.0 and 2.3 seconds
+# after the port was created. Commands sent before that are silently dropped,
+# which looks exactly like "FL Studio is not running".
+#
+# This is a one-time cost at server start. Phase 1 of ROADMAP.md replaces it with
+# a ping handshake that polls until FL actually answers.
+VIRTUAL_PORT_SETTLE_SECONDS = 3.0
+
+
+def _supports_virtual_ports() -> bool:
+    """Whether this platform can create a virtual MIDI port.
+
+    CoreMIDI (macOS) and ALSA (Linux) both allow it. Windows has no native
+    virtual MIDI API, so loopMIDI or similar is required there.
+    """
+    return platform.system() in ("Darwin", "Linux")
+
+
+def select_existing_port(output_ports: list[str], preferred: str | None) -> str | None:
+    """Pick an existing MIDI output port to use, or None if none is suitable.
+
+    Args:
+        output_ports: Port names as reported by mido.
+        preferred: An exact or substring match requested by the user via the
+            FL_STUDIO_MCP_MIDI_PORT environment variable.
+
+    Returns:
+        The chosen port name, or None if nothing suitable was found.
+    """
+    if preferred:
+        for name in output_ports:
+            if preferred.lower() in name.lower():
+                return name
+        return None
+
+    for name in output_ports:
+        upper = name.upper()
+        if any(hint in upper for hint in KNOWN_PORT_HINTS):
+            return name
+    return None
 
 
 def _get_fl_hardware_dir() -> Path:
@@ -49,6 +103,7 @@ class MIDIConnection:
     def __init__(self) -> None:
         self._port = None
         self._port_name: str | None = None
+        self._is_virtual = False
         self._connected = False
         self._error: str | None = None
 
@@ -83,44 +138,66 @@ class MIDIConnection:
             )
             return False
 
-        # Find available MIDI output ports
+        preferred = os.environ.get("FL_STUDIO_MCP_MIDI_PORT")
+
         try:
             output_ports = mido.get_output_names()
         except Exception as e:
             self._error = f"Failed to get MIDI ports: {e}"
             return False
 
-        if not output_ports:
-            self._error = (
-                "No MIDI output ports found. On Mac, enable IAC Driver in Audio MIDI Setup."
-            )
-            return False
+        # Prefer an existing port the user has already wired up (IAC, loopMIDI,
+        # or one named explicitly), so we do not duplicate a working setup.
+        target_port = select_existing_port(output_ports, preferred)
 
-        # Look for IAC Driver (Mac) or other virtual MIDI ports
-        target_port = None
-        for port_name in output_ports:
-            # Prefer IAC Driver on Mac
-            if "IAC" in port_name:
-                target_port = port_name
-                break
-            # Also accept loopMIDI on Windows or any port with "FL" in name
-            if "loopMIDI" in port_name or "FL" in port_name.upper():
-                target_port = port_name
-                break
-
-        # If no specific port found, use the first available
-        if target_port is None:
-            target_port = output_ports[0]
-
-        try:
-            self._port = mido.open_output(target_port)
+        if target_port is not None:
+            try:
+                self._port = mido.open_output(target_port)
+            except Exception as e:
+                self._error = f"Failed to open MIDI port '{target_port}': {e}"
+                return False
             self._port_name = target_port
+            self._is_virtual = False
             self._connected = True
             self._error = None
             return True
-        except Exception as e:
-            self._error = f"Failed to open MIDI port '{target_port}': {e}"
+
+        if preferred:
+            self._error = (
+                f"No MIDI output port matching '{preferred}' "
+                f"(FL_STUDIO_MCP_MIDI_PORT). Available: {output_ports or 'none'}"
+            )
             return False
+
+        # Nothing suitable exists. On macOS and Linux we can create our own port,
+        # which FL Studio then sees as a normal MIDI input device.
+        if _supports_virtual_ports():
+            try:
+                self._port = mido.open_output(VIRTUAL_PORT_NAME, virtual=True)
+            except Exception as e:
+                self._error = f"Failed to create virtual MIDI port: {e}"
+                return False
+            self._port_name = VIRTUAL_PORT_NAME
+            self._is_virtual = True
+            self._connected = True
+            self._error = None
+
+            settle = float(
+                os.environ.get(
+                    "FL_STUDIO_MCP_PORT_SETTLE_SECONDS", VIRTUAL_PORT_SETTLE_SECONDS
+                )
+            )
+            if settle > 0:
+                time.sleep(settle)
+            return True
+
+        self._error = (
+            "No suitable MIDI output port found and this platform cannot create "
+            "one. On Windows, install and run loopMIDI, create a port, then set "
+            "it as the FL Studio MCP input in FL Studio's MIDI Settings. "
+            f"Available ports: {output_ports or 'none'}"
+        )
+        return False
 
     def disconnect(self) -> None:
         """Close the MIDI connection."""
@@ -132,6 +209,7 @@ class MIDIConnection:
             self._port = None
         self._connected = False
         self._port_name = None
+        self._is_virtual = False
 
     def ensure_connected(self) -> None:
         """Ensure connection to FL Studio is active. Raises RuntimeError if not."""
@@ -202,9 +280,16 @@ class MIDIConnection:
             Response dictionary or error dict if timeout
         """
         start_time = time.time()
-        poll_interval = 0.02  # 20ms between checks
+
+        # FL Studio services a trigger in well under a millisecond: measured at a
+        # median of 0.8ms on FL Studio 2026 / macOS 26 with an M-series CPU.
+        # A flat 20ms poll therefore spent about 96 percent of every round trip
+        # asleep. Poll tightly at first, then back off so a genuinely slow or
+        # absent FL does not spin a core for the whole timeout.
+        fast_poll_until = start_time + 0.1
 
         while time.time() - start_time < timeout:
+            poll_interval = 0.0005 if time.time() < fast_poll_until else 0.02
             if self._response_file.exists():
                 try:
                     response_text = self._response_file.read_text()
@@ -244,6 +329,7 @@ class MIDIConnection:
         return {
             "connected": self.is_connected,
             "port_name": self._port_name,
+            "port_is_virtual": self._is_virtual,
             "available_ports": output_ports,
             "command_file": str(self._command_file),
             "response_file": str(self._response_file),

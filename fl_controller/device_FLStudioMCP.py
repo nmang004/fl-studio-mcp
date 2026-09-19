@@ -25,9 +25,11 @@ from pathlib import Path
 
 # FL Studio API modules (available when running inside FL Studio)
 import channels
+import general
 import mixer
 import plugins
 import transport
+import ui
 
 
 def _get_script_dir() -> Path:
@@ -124,8 +126,12 @@ def write_response(response: dict):
 def dispatch_command(action: str, params: dict) -> dict:
     """Route command to appropriate handler and return result."""
 
+    # System commands
+    if action == "system.getInfo":
+        return handle_system_get_info()
+
     # Transport commands
-    if action == "transport.start":
+    elif action == "transport.start":
         return handle_transport_start()
     elif action == "transport.stop":
         return handle_transport_stop()
@@ -230,6 +236,52 @@ def dispatch_command(action: str, params: dict) -> dict:
 
     else:
         return {"error": f"Unknown action: {action}"}
+
+
+# =============================================================================
+# System Handlers
+# =============================================================================
+
+
+def handle_system_get_info() -> dict:
+    """Report which FL Studio and scripting API version we are talking to.
+
+    The API version gates which functions exist. general.safeToEdit needs API 29,
+    for example, so knowing this before calling anything avoids a silent failure.
+    Each lookup is guarded separately because an older FL may lack any of them.
+    """
+    info = {}
+
+    try:
+        info["api_version"] = general.getVersion()
+    except Exception as e:
+        info["api_version"] = None
+        info["api_version_error"] = str(e)
+
+    try:
+        info["fl_version"] = ui.getVersion()
+    except Exception as e:
+        info["fl_version"] = None
+        info["fl_version_error"] = str(e)
+
+    try:
+        info["program_title"] = ui.getProgTitle()
+    except Exception:
+        info["program_title"] = None
+
+    # Probe a few version-gated functions so callers know what is usable.
+    capabilities = {}
+    try:
+        capabilities["safeToEdit"] = general.safeToEdit()
+    except Exception:
+        capabilities["safeToEdit"] = None
+    try:
+        capabilities["getCurrentTempo"] = mixer.getCurrentTempo()
+    except Exception:
+        capabilities["getCurrentTempo"] = None
+    info["capabilities"] = capabilities
+
+    return info
 
 
 # =============================================================================

@@ -112,6 +112,32 @@ def fl_connect() -> str:
 
 
 @mcp.tool()
+def fl_get_version() -> dict:
+    """Get the FL Studio version and MIDI scripting API version.
+
+    The API version gates which scripting functions exist, so check this before
+    relying on anything recent. Also reports whether a couple of version-gated
+    functions actually work, and the current project tempo.
+
+    Tempo is returned by FL in thousandths of a BPM, so 130000 means 130 BPM.
+    """
+    conn = get_connection()
+    result = conn.send_command("system.getInfo")
+
+    if not result.get("success", False):
+        return {"error": result.get("error", "Unknown error")}
+
+    tempo_raw = result.get("capabilities", {}).get("getCurrentTempo")
+    return {
+        "fl_version": result.get("fl_version"),
+        "program_title": result.get("program_title"),
+        "api_version": result.get("api_version"),
+        "tempo_bpm": tempo_raw / 1000 if isinstance(tempo_raw, (int, float)) else None,
+        "capabilities": result.get("capabilities", {}),
+    }
+
+
+@mcp.tool()
 def fl_connection_status() -> dict:
     """Get the current FL Studio connection status.
 
