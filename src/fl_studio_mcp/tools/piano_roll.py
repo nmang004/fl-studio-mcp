@@ -248,15 +248,32 @@ def refresh_and_read_state(
     return state
 
 
-def _trigger_note() -> str:
-    """A suffix noting whether auto-trigger exists on this platform."""
+def _target_note(result: dict) -> str:
+    """A sentence fragment naming where the notes went.
+
+    A result that does not say which piano roll was written to cannot be checked by
+    the caller reading it, and writing to the wrong piano roll while reporting
+    success is the failure this is here to prevent.
+
+    On a platform with no auto-trigger at all, that is said here too, because it is
+    the one case where the caller has to act rather than just read.
+    """
+    index = result.get("target_channel")
+    name = result.get("target_channel_name")
+    if index is None:
+        where = " No channel was given, so this went to whichever piano roll had focus."
+    elif name:
+        where = f" Channel {index} ({name})."
+    else:
+        where = f" Channel {index}."
+
     trigger = get_trigger()
     if not trigger.is_supported:
-        return (
-            f" Auto-trigger is not supported on {trigger.platform}. "
-            f"Press {trigger.keystroke} manually."
+        where += (
+            f" Auto-trigger is not supported on {trigger.platform}, so press "
+            f"{trigger.keystroke} in FL Studio to run the script."
         )
-    return ""
+    return where
 
 
 def register_piano_roll_tools(mcp: FastMCP) -> None:
@@ -332,7 +349,7 @@ def register_piano_roll_tools(mcp: FastMCP) -> None:
         if len(notes) > 5:
             summary += f", ... ({len(notes) - 5} more)"
         landed = result.get("notes_added", 0)
-        return f"Added {landed} note(s): {summary}.{_trigger_note()}"
+        return f"Added {landed} note(s): {summary}.{_target_note(result)}"
 
     @mcp.tool()
     def fl_send_chord(
@@ -376,7 +393,7 @@ def register_piano_roll_tools(mcp: FastMCP) -> None:
         names = ", ".join(_midi_to_note_name(n) for n in midi_notes)
         return (
             f"Added chord [{names}] at beat {time}, duration {duration}."
-            f"{_trigger_note()}"
+            f"{_target_note(result)}"
         )
 
     @mcp.tool()
@@ -411,8 +428,9 @@ def register_piano_roll_tools(mcp: FastMCP) -> None:
             return (
                 "Nothing matched those notes. Check the pitch and the time, and "
                 "note that time is in quarter notes, not ticks."
+                f"{_target_note(result)}"
             )
-        return f"Deleted {deleted} note(s).{_trigger_note()}"
+        return f"Deleted {deleted} note(s).{_target_note(result)}"
 
     @mcp.tool()
     def fl_clear_piano_roll(channel: int | None = None) -> str:
@@ -430,7 +448,7 @@ def register_piano_roll_tools(mcp: FastMCP) -> None:
         )
         if not result.get("success"):
             return f"Could not clear the piano roll: {result.get('error')}"
-        return f"Cleared {result.get('notes_deleted', 0)} note(s).{_trigger_note()}"
+        return f"Cleared {result.get('notes_deleted', 0)} note(s).{_target_note(result)}"
 
     @mcp.tool()
     def fl_get_piano_roll_state(channel: int | None = None) -> dict:
