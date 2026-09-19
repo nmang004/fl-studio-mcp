@@ -896,18 +896,42 @@ git commit -m "Correct the README and document the new tool areas"
 
 ## Phase 3 exit criteria
 
-The roadmap's own bar, restated so it can be checked rather than believed:
+Checked on 2026-09-19 against the committed tree and live FL Studio 2026.
 
-- [ ] Every area in the roadmap's table has controller actions, tests against the
-      fake harness, and a row in the README tool tables.
-- [ ] The tool count stays well below the function count, and the plan says why
-      for each grouping.
-- [ ] A mutating action in every new area is refused when `safeToEdit` is false.
-- [ ] An action in every new area names the missing field rather than defaulting.
-- [ ] The tempo write has a written finding, whether or not a tool ships.
-- [ ] `pytest` green and `ruff check .` clean with no FL Studio running.
-- [ ] `docs/SMOKE_TEST.md` records the live reads, and says which writes were not
+- [x] Every area in the roadmap's table has controller actions, tests against the
+      fake harness, and rows in the README tool tables: patterns, undo, tempo, EQ,
+      routing, metering, channels, playlist, arrangement and UI.
+- [x] The tool count stays well below the function count. Fourteen tools cover the
+      roughly fifty stub functions this phase touched, and the groupings are stated
+      with reasons: one EQ call returns every band, one routing call returns every
+      send, one pattern call returns every property.
+- [x] A mutating action in every new area is refused when `safeToEdit` is false.
+      Each area has a test for it.
+- [x] An action in every new area names the missing field rather than defaulting.
+- [x] The tempo write has a written finding, and it is positive: the write works,
+      and a tool ships on the strength of the live measurement.
+- [x] `pytest` green and `ruff check .` clean with no FL Studio running. 438 tests.
+- [x] `docs/SMOKE_TEST.md` records the live reads, and says which writes were not
       attempted on the user's open project.
+
+### What the live reads corrected
+
+Six assumptions were wrong, and every one of them was invisible to the test suite
+because the fake had been written from the same assumption:
+
+| Assumption | What FL actually does |
+| --- | --- |
+| Pattern accessors all share one index base | They do not. `patternCount` is a 0-based count, `patternNumber` is 1-based, the getters are 0-based, and `isPatternSelected` and `isPatternDefault` are 1-based where index 0 raises |
+| FL names patterns "Pattern 1" first | It names them "Pattern 0" first |
+| `getPatternColor` returns 0xRRGGBB | It returns a signed int, so a high-bit colour arrives negative |
+| An insert EQ has seven bands | It has three |
+| Reading past the last marker fails | It returns an empty name |
+| A playlist lane with no name is unused | Every lane has a name. 498 of 500 carry the generated "Track N" |
+
+The lesson is the one this phase keeps teaching: a fake written from an assumption
+tests the assumption, not the API. Each of these was found by reading the real
+value and comparing it to what the code expected, which is cheap and was not done
+often enough.
 
 ## What Phase 3 deliberately does not do
 

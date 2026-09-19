@@ -158,6 +158,57 @@ Note the date, the FL Studio version, the API version, and any item that failed,
 in the commit message or the pull request description. A smoke test with no record
 is a rumour.
 
+### 2026-09-19, Phase 3
+
+FL Studio 2026, Producer Edition v26.1.6 build 5406, API version 45, macOS 26,
+Apple silicon.
+
+Passed, against live FL Studio, all read-only except where noted:
+
+- Patterns: the real project reported one pattern, name "Pattern 0", length 16,
+  colour 0x485156. This corrected three wrong assumptions, recorded below.
+- Mixer EQ: an insert reports three bands, not seven, with gain, frequency and
+  bandwidth each.
+- Routing: Insert 1 sends to Master at 0.8, and the project reported 18 mixer
+  tracks.
+- Levels: read 0.0 with the transport stopped, which is correct rather than a bug.
+- Playlist: FL reported 500 lanes and the tool correctly reported that all 500 are
+  empty generated lanes rather than listing them.
+- Markers: none on this project, and the tool said so instead of returning 513
+  empty entries.
+- Channel properties and UI state: channel 0 is "808 Kick", type 0, feeding mixer
+  track 1, and the piano roll window was visible.
+
+Run with the owner's explicit agreement, and restored afterwards:
+
+- Tempo write: set to 128 BPM and read back, then restored to 130 and confirmed by
+  an independent read. Later verified through the shipped tool across a real change
+  from 130 to 126, a repeat of the same value, and a restore to 130. The project
+  ended at 130, where it started.
+
+Not run:
+
+- Windows, and Windows with a OneDrive-redirected Documents folder. No machine.
+- Any write to the playlist, arrangement or UI on this project. Those paths are
+  fake-tested only, because a smoke test has no business renaming someone's
+  arrangement lanes or moving their windows.
+
+Found during this run, and since fixed:
+
+- The pattern accessors do not share an index base: `patternCount` is a 0-based
+  count, `patternNumber` is 1-based, `getPatternName` and `getPatternLength` are
+  0-based, and `isPatternSelected` and `isPatternDefault` are 1-based, where index
+  0 raises "Index out of range".
+- FL names its patterns "Pattern 0", not "Pattern 1".
+- `getPatternColor` returns a signed int, so a colour with the high bit set arrives
+  negative.
+- An insert EQ has three bands, not seven.
+- Reading past the last arrangement marker returns an empty name rather than
+  failing.
+- Reading a playlist lane's properties for index 0 returns nulls.
+- The tempo no-op case: setting a project to the tempo it already has is a
+  legitimate request, and the first version of the tool reported it as an error.
+
 ### 2026-09-19, Phase 2
 
 FL Studio 2026, Producer Edition v26.1.6 build 5406, API version 45, macOS 26,

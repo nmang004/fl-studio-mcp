@@ -33,6 +33,7 @@ Anything here is observation, not inference.
 | The sandbox blocks whole syscalls | measured from inside a controller script on 2026-09-19, CPython 3.12.1: `Path.mkdir`, `os.makedirs`, `os.replace`, `os.rename`, `os.remove`, `Path.unlink`, `Path.glob` and the builtin `open()` all raise `SystemError: <...> returned NULL without setting an exception`. `Path.write_text`, `Path.read_text`, `Path.exists`, `Path.is_dir`, `Path.stat`, `Path.iterdir`, `Path.home` and `Path.expanduser` all work. A blocked call at module scope stops the script importing at all, so FL never loads it and every command times out, which looks exactly like FL not running |
 | The piano roll sandbox blocks renames too | measured on 2026-09-19 by running the script from FL's Piano roll scripts menu: `os.replace` raises `SystemError (error return without exception set)`. The builtin `open()` does work there, unlike in the controller sandbox, so writes go straight to the target and the server's reader tolerates catching one mid write. An error inside a piano roll script surfaces as a dialog with a traceback and the script path, which is the only debugging surface on that side |
 | A piano roll script must be bound by hand | FL runs piano roll scripts from the piano roll's own menu, and the keystroke the server sends is only delivered if the user has assigned it to that menu entry. Nothing in this repo performs that step, and it cannot be done from outside FL. Until it is done, every piano roll tool times out, which previously looked identical to success because no reply was read |
+| Tempo write works | measured on 2026-09-19 from live FL Studio 2026 build 5406: `general.processRECEvent(midi.REC_Tempo, 128000, 17)` set the tempo to 128 BPM, `processRECEvent` returned 128000, an independent read through `system.getInfo` agreed, and a restore came back to 130000. Flag 17 is `REC_UpdateValue` combined with `REC_UpdateControl`. The value was stored exactly, with no quantisation. One flag word, one build, one platform: `processRECEvent` carries a HELP WANTED note, so the tool reads the value back and reports a write that did not take as a failure |
 | Undo cannot be grouped | measured on 2026-09-19 from live FL Studio 2026: `general.undo()` is a toggle, exactly as its stub says, so two calls undo once and then redo. `general.undoUpDown(-n)` is a true relative move and is what the server uses. A bare `general.saveUndo` adds no history entry (count 34 before and after) and does not reduce how many undos an edit needs (2 with it, 2 without), so it is not called. A batch of channel or step writes needs 1 undo call; two mixer writes need 2, reproducibly across three trials. `getUndoHistoryCount` does not predict the step count and its delta is even the wrong sign for step writes, so it is reported as an observation rather than used to derive a number |
 | Note pan defaults to 0.5 | writing an `flpianoroll.Note` without touching `pan` and reading it back gives 0.5, not 0.0, so centre is 0.5 in the piano roll's own range. Not the same scale as `channels.getChannelPan`, which is -1.0 to 1.0 |
 
@@ -305,10 +306,13 @@ Confirmed against the stubs. Do not plan around these.
 Timeboxed investigations. Each needs a live FL Studio to resolve. Do not commit
 roadmap work that depends on one until the spike lands.
 
-- **T1: Tempo write.** Half resolved. Reading works and the scaling is confirmed
-  as thousandths of a BPM (`getCurrentTempo` returned 130000 at 130 BPM). What
-  remains is the write path: `general.processRECEvent` with `midi.REC_Tempo` and
-  the right flag combination, likely `REC_UpdateValue | REC_UpdateControl`.
+- **T1: Tempo write.** Resolved, and positive. Reading works and the scaling is
+  confirmed as thousandths of a BPM (`getCurrentTempo` returned 130000 at 130 BPM).
+  Writing works too, measured live on 2026-09-19: `general.processRECEvent` with
+  `midi.REC_Tempo` and flags 17, which is `REC_UpdateValue | REC_UpdateControl`,
+  set the tempo and an independent read agreed. A `fl_set_tempo` tool ships on the
+  strength of it, verifying the write by reading the value back. The finding is
+  `docs/spikes/2026-09-19-T1-tempo-write.md`.
 - **T2: Step parameters.** `channels.getStepParam` and `setStepParameterByIndex`
   reach the graph editor for per-step velocity, pan, pitch and shift. Several
   arguments are marked "???" in the stubs and need experimentation.
