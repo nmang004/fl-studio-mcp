@@ -931,19 +931,96 @@ git commit -m "Read and audition the browser's focused item"
 
 **Files:**
 - Create: `src/fl_studio_mcp/utils/flp.py`, `src/fl_studio_mcp/tools/indexing.py`
+- Create: `docs/spikes/2026-09-19-flp-format.md` (the evidence)
 - Test: `tests/test_flp_index.py`
 
-**Interfaces:** decided by the `.flp` feasibility study that runs alongside this plan.
-The task lands as either a minimal header reader for a handful of fields, or a recorded
-decision not to ship the feature. It never ships a parser that reports a number it
-cannot stand behind, and it never adds a runtime dependency: the study weighed PyFLP
-against a hand-written reader and the maintainability answer is recorded with the
-decision.
+**Decision, from the feasibility study:** write a minimal reader in this repository,
+read only version, build, tempo, title, time signature and per channel plugin names,
+and descope the musical key. Do not take PyFLP as a dependency. The study is
+`docs/spikes/2026-09-19-flp-format.md`, and its findings are worth stating here because
+two of them are load bearing:
 
-- [ ] **Step 1: Write the decision and the failing tests together**, so the code and
-      the reasoning arrive in the same commit.
-- [ ] **Step 2: Run, watch them fail, implement, green**
-- [ ] **Step 3: Commit**
+- The container is simple and was observed, not inferred: `FLhd`, a 6 byte header of
+  three little-endian uint16s (format, channel count, PPQ), then `FLdt` and a uint32
+  length, and that length is exactly `file size - 22` in all five local files. The
+  payload is uncompressed little-endian events with UTF-16LE strings. Tempo is event
+  156 as thousandths of a BPM, time signature events 17 and 18, title event 194, and
+  these were read out of a real file: 130.000 BPM, 4/4, empty title.
+- The size rule published in the Kaitai spec and implemented by PyFLP **silently
+  misreads FL Studio 2026 files exactly where those fields live**, and still lands on
+  EOF so nothing looks wrong. It reported zero tempo, zero title and zero time
+  signature events for all five files. PyFLP 2.2.1 is also GPL-3.0 against this MIT
+  repository, has had no release since June 2023, and pulls four dependencies. It is
+  therefore a dependency that cannot do the job, adds a licence problem, and would
+  still need the hand written fallback.
+
+The failure mode is silent, which is what shapes the interface: the reader reports what
+it found and how sure it is, never a bare number.
+
+**Interfaces:**
+- Produces: `read_flp(path) -> dict` with `ok`, `status`, `header`
+  (`format`, `channels`, `ppq`), `version`, `build`, `tempo`, `title`,
+  `time_signature`, `plugins`, `size`, `modified`, `walk` (`events`, `landed`),
+  `problems`.
+- Produces: `fl_index_projects(folder=None, refresh=False, limit=50)`.
+- A cache of the last scan, in the library under `index/`, so re-asking is instant and
+  a producer can see what was found without walking again.
+
+- [ ] **Step 1: Write the failing tests**, with synthetic byte fixtures, because CI has
+      no FL Studio and a real project belongs to the producer:
+
+```python
+def test_the_second_chunk_length_must_match_the_file_size(tmp_path):
+    """The invariant that catches a truncated or rewritten file.
+
+    FLdt's length is exactly the file size minus the 22 byte preamble in all five
+    projects measured on this machine, so a mismatch means the file is not what it
+    claims and no field from it should be believed.
+    """
+    ...
+
+
+def test_a_tempo_of_130000_is_reported_as_130_bpm(tmp_path):
+    """Event 156 is thousandths of a BPM, observed in a real project."""
+    ...
+
+
+def test_an_out_of_range_tempo_is_refused_rather_than_reported(tmp_path):
+    """A misread walk can land on a plausible looking integer.
+
+    The reader's own guard is 10 to 522 BPM, and a value outside it is reported as
+    unreadable rather than as a tempo, because a wrong tempo in an index is worse
+    than a blank one.
+    """
+    ...
+
+
+def test_time_signature_comes_from_two_events(tmp_path):
+    """Event 17 is the numerator and 18 the denominator."""
+    ...
+
+
+def test_a_walk_that_does_not_land_exactly_on_eof_is_not_trusted(tmp_path):
+    """The published size rule desyncs silently and re-syncs on the UTF-16 grid.
+
+    Because it can look correct while being wrong, the reader requires the walk to
+    end exactly at the end of the payload, and refuses the fields when it does not.
+    """
+    ...
+
+
+def test_a_file_that_is_not_a_project_is_reported_not_raised(tmp_path):
+    ...
+```
+
+- [ ] **Step 2: Run and watch them fail**
+- [ ] **Step 3: Implement, green**
+- [ ] **Step 4: Verify against the real corpus**: the five autosaved projects under
+      `~/Documents/Image-Line/FL Studio/Projects/Backup/`, read-only. Expected from the
+      study: 130.000 BPM, 4/4, an empty title, PPQ 96, five channels, version
+      26.1.6.5406. This is the only real data the reader will ever see before a release,
+      so it is not optional.
+- [ ] **Step 5: Commit**
 
 ```bash
 git commit -m "Index project files, and say what could not be read"
