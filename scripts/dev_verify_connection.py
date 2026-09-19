@@ -32,6 +32,12 @@ def check_port() -> bool:
     print(f"opened port : {status['port_name']}")
     print(f"all outputs : {status['available_ports']}")
     print(f"command file: {status['command_file']}")
+
+    # The honest liveness check: an open port proves nothing until FL answers.
+    start = time.perf_counter()
+    answered = conn.wait_until_responsive(timeout=8.0)
+    elapsed = (time.perf_counter() - start) * 1000
+    print(f"ping       : {'answered' if answered else 'NO ANSWER'} after {elapsed:.0f}ms")
     return True
 
 

@@ -371,6 +371,30 @@ class MIDIConnection:
         # Wait for response
         return self._wait_for_response(timeout)
 
+    def ping(self, timeout: float = 1.0) -> dict[str, Any]:
+        """Ask FL Studio whether it is there, and wait for the answer.
+
+        A successful ping is the only evidence that FL is running, listening, and
+        executing the controller. An open port is evidence of none of those.
+        """
+        return self.send_command("system.ping", timeout=timeout)
+
+    def wait_until_responsive(self, timeout: float = 8.0, interval: float = 0.25) -> bool:
+        """Ping until FL Studio answers, or the timeout expires.
+
+        Used after creating a virtual port, because FL takes 2.0 to 2.3 seconds to
+        bind one and silently drops everything sent before that. Retrying a cheap
+        idempotent command is more honest than sleeping for a fixed guess: it
+        returns as soon as FL is ready, and reports failure when it never is.
+        """
+        deadline = time.time() + timeout
+        while time.time() < deadline:
+            reply = self.ping(timeout=min(interval * 4, 1.0))
+            if reply.get("success") and reply.get("pong"):
+                return True
+            time.sleep(interval)
+        return False
+
     def _wait_for_response(self, timeout: float) -> dict[str, Any]:
         """Wait for response file to appear and read it.
 

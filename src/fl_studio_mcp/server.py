@@ -91,14 +91,11 @@ def get_project_info() -> dict:
 # Connection management tools
 @mcp.tool()
 def fl_connect() -> str:
-    """Connect or reconnect to FL Studio via MIDI.
+    """Connect to FL Studio and confirm it answers.
 
-    Use this tool to:
-    - Check if FL Studio is connected
-    - Retry connection after starting FL Studio
-    - Reconnect if the connection was lost
-
-    Returns the connection status.
+    Opening a MIDI port only proves the port opened. FL Studio takes two to three
+    seconds to bind a new virtual port, and commands sent before that vanish, so
+    this sends a ping and reports success only when FL replies to it.
     """
     # Reset connection state to force a fresh connection attempt
     reset_connection()
@@ -108,7 +105,16 @@ def fl_connect() -> str:
         conn.ensure_connected()
     except RuntimeError as e:
         return f"Connection failed: {e}"
-    return "Successfully connected to FL Studio via MIDI!"
+
+    if not conn.wait_until_responsive():
+        return (
+            "Opened the MIDI port, but FL Studio did not answer a ping. Check "
+            "that FL Studio is running and that the FL Studio MCP Controller is "
+            "enabled in Options > MIDI Settings."
+        )
+
+    status = conn.get_status()
+    return f"Connected to FL Studio, and it is answering, on port {status['port_name']}."
 
 
 @mcp.tool()

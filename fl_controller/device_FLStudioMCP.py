@@ -166,6 +166,8 @@ def dispatch_command(action: str, params: dict) -> dict:
     # System commands
     if action == "system.getInfo":
         return handle_system_get_info()
+    elif action == "system.ping":
+        return handle_system_ping()
     elif action == "system.sysExProbe":
         return handle_system_sysex_probe(params)
 
@@ -356,6 +358,30 @@ def _safe_to_edit():
         return bool(general.safeToEdit())
     except Exception:
         return None
+
+
+def handle_system_ping() -> dict:
+    """Answer a liveness check.
+
+    This is the only action whose purpose is to prove FL answered. It reports the
+    environment alongside, so a caller that pings gets the version facts for free
+    rather than paying a second round trip for them.
+    """
+    try:
+        api_version = general.getVersion()
+    except Exception:
+        api_version = None
+    try:
+        fl_version = ui.getProgTitle()
+    except Exception:
+        fl_version = None
+
+    return {
+        "pong": True,
+        "api_version": api_version,
+        "fl_version": fl_version,
+        "safe_to_edit": _safe_to_edit(),
+    }
 
 
 def handle_system_get_info() -> dict:
