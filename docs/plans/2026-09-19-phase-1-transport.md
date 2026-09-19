@@ -1789,23 +1789,50 @@ git commit -m "Refuse to mutate a project FL Studio says is not safe to edit"
 
 ## Phase 1 exit criteria
 
-The roadmap's own bar, restated so it can be checked rather than believed:
+Checked on 2026-09-19 against the committed tree and live FL Studio 2026.
 
-- [ ] A forced timeout followed by a second command executes that second command
-      exactly once, proven by a test.
-- [ ] Two concurrent clients each receive their own answers, proven by a test.
-- [ ] A reply that belongs to another request is never consumed.
-- [ ] `fl_connect` reports success only when FL answers a ping.
-- [ ] A mutating handler with no target refuses and names the missing field.
-- [ ] A batch is one trigger and one undo entry, and stops at its first failure.
-- [ ] A mutation is refused when `general.safeToEdit()` is false, and proceeds
-      when it is true or unknown.
-- [ ] `pytest` green and `ruff check .` clean with no FL Studio running.
-- [ ] `uv run python scripts/dev_verify_connection.py` reports a round trip near
-      1ms, a successful ping, and the unknown-action check passing, after the
-      controller is copied into FL.
-- [ ] `docs/SMOKE_TEST.md` gains a Phase 1 section recording the live run, and its
-      record notes anything that could not be run.
+- [x] A forced timeout followed by a second command executes that second command
+      exactly once. Verified live: the 1ms call timed out with its trigger in
+      flight and the follow-up wrote exactly one response. The original audit
+      could not reproduce this race, which is why the check now says whether the
+      race was actually exercised rather than reporting a flat pass.
+- [x] Two concurrent clients each receive their own answers. Ten threads asking
+      two different questions get ten correctly attributed answers. Without the
+      lock all ten get nothing, measured by disabling it.
+- [x] A reply that belongs to another request is never consumed.
+- [x] `fl_connect` reports success only when FL answers a ping, measured at 3ms.
+- [x] A mutating handler with no target refuses and names the missing field.
+      Verified live, with the Master track volume unchanged.
+- [x] A batch runs from one trigger and stops at its first failure, reporting the
+      rest as skipped. Verified live.
+- [x] A mutation is refused when `general.safeToEdit()` is false, and proceeds
+      when it is true or unknown. Fake-tested only, deliberately: the live project
+      reports true and forcing it false would be editing someone's work to test a
+      refusal.
+- [x] `pytest` green and `ruff check .` clean with no FL Studio running. 278 tests
+      from a clean clone with `uv sync --dev --locked`.
+- [x] `dev_verify_connection.py` reports a round trip near 1ms, a successful ping,
+      and the unknown-action and double-execution checks passing.
+- [x] `docs/SMOKE_TEST.md` has a Phase 1 section recording the live run and what
+      could not be run.
+
+### Where this plan was wrong
+
+Recorded so the plan does not read as if it went the way it was written.
+
+- It asked for a batch to be one undo step through `general.saveUndo`. That is
+  not achievable, and the plan inherited the claim from the roadmap. Measured: a
+  bare `saveUndo` adds no history entry and does not reduce how many undos an edit
+  needs, and the API has no grouping flag. The batch still calls nothing for
+  grouping, and reports the undo history size as an observation rather than
+  deriving a step count that would sometimes be the wrong sign.
+- It did not anticipate that `general.undo()` is a toggle. That is documented in
+  the stubs and confirmed live, and it meant the single-step undo undone once and
+  then redid.
+- It planned to measure a batch's undo cost from `getUndoHistoryCount`. That
+  number does not predict the step count, so the plan was adjusted to measure the
+  step count directly, by undoing until the state was restored, across three
+  trials.
 
 ## What Phase 1 deliberately does not do
 

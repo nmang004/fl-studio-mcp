@@ -90,8 +90,23 @@ Ask before running these, and restore the project afterwards.
       Catches the global index flag being wrong on the step sequencer.
 - [ ] With playback running, confirm a mutating tool refuses rather than
       corrupting the project. Catches `safeToEdit` gating being dropped.
-- [ ] Undo once with Ctrl+Z and confirm the whole edit is undone. Catches per-note
-      undo grouping, which is Phase 1 work.
+- [ ] `fl_batch` two commands and confirm both ran. Catches the batch runner
+      stopping early or running a command twice.
+- [ ] `fl_batch` where the second command is deliberately invalid, and confirm
+      `executed: 1`, `failed: 1`, and the third command reported as skipped rather
+      than run. Catches a half-applied edit reported as a whole one.
+- [ ] `fl_batch` a mixer change and a channel change, then `fl_undo(steps=1)` and
+      confirm the channel change is reversed. Then `fl_undo()` again and confirm
+      the mixer change goes too. Catches `general.undo` being used as a toggle
+      rather than `undoUpDown` as a relative move, which makes the second call
+      redo instead of undo.
+- [ ] `fl_connect` reports that FL is answering, and does so only when it is.
+      Stop FL Studio and confirm it reports that no ping was answered rather than
+      claiming success because a port opened.
+- [ ] Two clients at once: run two MCP clients, or two shells calling
+      `send_command` in parallel, and confirm each gets its own answer. Catches a
+      regression in the request lock, which turns cross-talk into either wrong
+      answers or empty ones.
 
 ## Piano roll path
 
@@ -133,6 +148,44 @@ Both must be covered before a release. Windows needs the extra step.
 Note the date, the FL Studio version, the API version, and any item that failed,
 in the commit message or the pull request description. A smoke test with no record
 is a rumour.
+
+### 2026-09-19, Phase 1
+
+FL Studio 2026, Producer Edition v26.1.6 build 5406, API version 45, macOS 26,
+Apple silicon.
+
+Passed, against live FL Studio:
+
+- Ping handshake: `fl_connect` reached FL with a ping answered in 3ms once the
+  port was bound.
+- Correlation: every reply carries the id of the command it answers.
+- The abandoned-command check now genuinely exercises the race, because the 1ms
+  call timed out with its trigger in flight, and the follow-up command ran
+  **exactly once**. This is the roadmap's Phase 1 done-condition, and it holds.
+- Missing target: `mixer.setTrackVolume` with no `track` is refused with
+  "mixer.setTrackVolume requires a 'track'", and the Master track stayed at 0.8
+  where the old code would have set it to 0.5.
+- Batch atomicity: a batch whose second command was refused reported
+  `executed: 1, failed: 1` and left the third command unrun.
+- Undo: two mixer changes needed two `fl_undo` calls, reproducibly across three
+  trials, and the track was back at its original volume and pan afterwards.
+
+Not run:
+
+- Auto-trigger keystroke, still blocked by macOS Accessibility error 1002.
+- Windows, and Windows with a OneDrive-redirected Documents folder. No machine.
+- The edit-safety refusal. The live project reports `safeToEdit: true`, and
+  forcing it false on someone's open project is not something a smoke test should
+  do. The refusal path is covered by tests against the fake only, and that gap is
+  deliberate.
+
+Found during this run, and since fixed:
+
+- `general.undo()` is a toggle, as its stub says, so the server's single-step undo
+  undone once and then redid. It now always uses `general.undoUpDown`.
+- The roadmap's undo-grouping premise is wrong: `general.saveUndo` adds no history
+  entry and does not reduce how many undos an edit needs. Batching delivers
+  atomicity, not one-Ctrl+Z grouping, and the roadmap now says so.
 
 ### 2026-09-19, Phase 0
 
