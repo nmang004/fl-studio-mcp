@@ -16,6 +16,7 @@ from __future__ import annotations
 import json
 import os
 import platform
+import threading
 import time
 import uuid
 from pathlib import Path
@@ -171,6 +172,11 @@ class MIDIConnection:
         self._connected = False
         self._error: str | None = None
 
+        # The command file and the response file are each one shared slot, so a
+        # whole request cycle is serialised. Re-entrant, so a caller already
+        # holding it can still send.
+        self._lock = threading.RLock()
+
         # The id of the command currently in flight. Its reply must carry it.
         self.last_request_id: str | None = None
 
@@ -295,20 +301,39 @@ class MIDIConnection:
         params: dict[str, Any] | None = None,
         timeout: float = 2.0,
     ) -> dict[str, Any]:
-        """Send a command to FL Studio and wait for response.
+        """Send a command to FL Studio and wait for its reply.
+
+        Safe to call from several threads at once. Whole request cycles are
+        serialised, because the command file and the response file are each a
+        single shared slot: correlation alone cannot stop two writers interleaving
+        there.
 
         Args:
-            action: The command action (e.g., "transport.start", "mixer.setTrackVolume")
-            params: Optional parameters for the command
-            timeout: Maximum time to wait for response in seconds
+            action: The command action, for example "transport.getStatus".
+            params: Optional parameters for the command.
+            timeout: Maximum time to wait for the reply, in seconds.
 
         Returns:
-            Response dictionary from FL Studio
+            The reply from FL Studio, carrying the id of the command it answers,
+            or a dict with "success": False and a specific "error".
 
         Raises:
-            RuntimeError: If not connected or command fails
+            RuntimeError: If the connection cannot be established.
         """
         self.ensure_connected()
+        with self._lock:
+            return self._send_command_locked(action, params, timeout)
+
+    def _send_command_locked(
+        self,
+        action: str,
+        params: dict[str, Any] | None,
+        timeout: float,
+    ) -> dict[str, Any]:
+        """Write the command, trigger FL, and wait for the matching reply.
+
+        The caller must hold self._lock.
+        """
 
         # Every command carries an id and the controller echoes it. A reply is
         # only accepted when the id matches, so an abandoned command's answer
