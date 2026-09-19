@@ -393,6 +393,10 @@ fl-studio-mcp
 
 ### Playlist
 
+A playlist track is an arrangement lane, not a mixer track and not a Channel Rack
+channel. FL keeps the three separate, so a lane named Drums and a mixer insert
+named Drums are unrelated things that happen to share a name.
+
 | Tool | Description |
 |------|-------------|
 | `fl_get_playlist_tracks` | List the arrangement's named track lanes with their mute and solo state |
@@ -447,35 +451,6 @@ against the wrong piano roll.
 | `fl_batch` | Run several commands as one edit that stops at the first failure |
 | `fl_undo` | Undo one or more steps |
 | `fl_undo_history` | Report how deep the undo history is |
-
-### Routing and Metering
-
-| Tool | Description |
-|------|-------------|
-| `fl_get_routing` | Find out where a mixer track sends its audio |
-| `fl_set_routing` | Route a mixer track to other tracks, or remove its routings |
-| `fl_get_levels` | Read peak levels to find what clips and what never sounds |
-
-### Playlist, Arrangement and Windows
-
-A playlist track is an arrangement lane. It is not a mixer track and not a Channel Rack channel, and FL keeps the three separate.
-
-| Tool | Description |
-|------|-------------|
-| `fl_get_playlist_tracks` | List the arrangement lanes that the user has named |
-| `fl_set_playlist_track` | Rename, recolour, mute or solo an arrangement lane |
-| `fl_get_markers` | List the arrangement's markers and the timeline selection |
-| `fl_add_marker` | Place a named marker, for example Intro or Drop |
-| `fl_get_ui_state` | Find out which FL windows are open and what has focus |
-| `fl_show_window` | Show an FL window |
-| `fl_hide_window` | Hide an FL window |
-
-### Channel Properties
-
-| Tool | Description |
-|------|-------------|
-| `fl_get_channel_properties` | Read a channel's type, pitch and mixer routing |
-| `fl_set_channel_properties` | Set a channel's pitch, or quantize its notes |
 
 ## Example Workflows
 
