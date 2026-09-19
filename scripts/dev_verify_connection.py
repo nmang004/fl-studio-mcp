@@ -90,16 +90,23 @@ def check_latency(n: int = 10) -> None:
 
 
 def check_unknown_action_bug() -> None:
-    """Audit bug 2: unknown actions are reported as successes."""
-    _hr("5. Bug: unknown action reported as success")
+    """Audit bug 2: unknown actions were reported as successes.
+
+    Fixed in the controller on 2026-09-19. Kept as a regression check, because
+    the fix is three lines and the failure is invisible: a caller reading only
+    `success` acts on a command that never ran.
+    """
+    _hr("5. Check: unknown action reported as success (was a bug)")
     conn = get_connection()
     result = conn.send_command("bogus.doesNotExist", timeout=3.0)
     if result.get("success") is True and "error" in result:
-        print(f"REPRODUCED: success=True alongside error={result['error']!r}")
+        print(f"REGRESSED: success=True alongside error={result['error']!r}")
         print("cause: dispatch_command returns {'error': ...} and the caller")
         print("merges it into {'success': True, **result}")
+    elif result.get("success") is False and "error" in result:
+        print(f"OK: reported as failure, error={result['error']!r}")
     else:
-        print(f"not reproduced, got: {result}")
+        print(f"UNEXPECTED: {result}")
 
 
 def check_double_execution_bug() -> None:

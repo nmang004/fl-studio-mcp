@@ -28,8 +28,9 @@ Anything here is observation, not inference.
 | API version is 45 | `general.getVersion()` returns **45**, against `ui.getVersion()` of "Producer Edition v26.1.6 [build 5406]". Everything in stubs v37 is available, including `safeToEdit` (API 29). The upstream 20.7+ floor is far below what is actually installed here, so do not assume a feature is missing without checking |
 | Tempo scaling confirmed | `mixer.getCurrentTempo()` returned `130000` on a 130 BPM project, confirming thousandths of a BPM. This resolves the read half of spike T1; the `processRECEvent` write flags are still unverified |
 | Controller script hot-reloads | editing and recopying `device_FLStudioMCP.py` took effect without restarting FL. Only the initial install needs a restart, which makes the dev loop much faster than the README implies |
-| Unknown actions report success | reproduced live: `bogus.doesNotExist` returns `success: True` alongside an error string |
+| Unknown actions report success | reproduced live: `bogus.doesNotExist` returns `success: True` alongside an error string. Fixed in the controller, and the live check now reports `success: False` |
 | Double execution | not reproduced live. The race window is roughly 1ms wide given FL's speed, so it is much narrower than the audit assumed. The missing correlation is still structural, and two concurrent MCP clients hit it without needing a timeout |
+| The sandbox blocks whole syscalls | measured from inside a controller script on 2026-09-19, CPython 3.12.1: `Path.mkdir`, `os.makedirs`, `os.replace`, `os.rename`, `os.remove`, `Path.unlink`, `Path.glob` and the builtin `open()` all raise `SystemError: <...> returned NULL without setting an exception`. `Path.write_text`, `Path.read_text`, `Path.exists`, `Path.is_dir`, `Path.stat`, `Path.iterdir`, `Path.home` and `Path.expanduser` all work. A blocked call at module scope stops the script importing at all, so FL never loads it and every command times out, which looks exactly like FL not running |
 
 ### Landed early
 
@@ -89,6 +90,12 @@ them produces code that imports fine locally and fails silently inside FL.
   no `__file__`, a restricted stdlib, and no ability to install packages. It can
   import `channels`, `mixer`, `transport`, `plugins`, `general`, `patterns`,
   `playlist`, `arrangement`, `ui`, `device`, `midi`.
+- The controller script may not create directories, rename files, delete files,
+  glob a directory, or call the builtin `open()`. All of those raise a bare
+  `SystemError` from inside FL, and a blocked call at module scope stops the
+  script importing at all, so FL silently never loads it. Use `Path.write_text`
+  and `Path.read_text`, and let the server own directory creation. See "Verified
+  against live FL Studio".
 - The piano roll script (`scripts/ComposeWithLLM.pyscript`) runs in a *separate*
   sandbox whose only FL module is `flpianoroll`. It cannot see `channels` or
   `mixer`. This is why the two paths exist and cannot be merged.
@@ -123,7 +130,7 @@ Fixes the audit's structural bug 1 and the error handling that hides everything.
 | Item | Change |
 | --- | --- |
 | Request correlation | every command carries an `id`; the response echoes it; mismatched responses are ignored, not consumed |
-| Atomic writes | responses written to a temp file then `os.replace`, so the poller never reads a half-written file |
+| Atomic writes | responses written to a temp file then `os.replace`, so the poller never reads a half-written file. **Not possible as written:** `os.replace` raises `SystemError` inside FL's sandbox, so the controller writes in place. What is achievable, and landed, is a reader that treats a response it cannot parse as unfinished rather than malformed, so the poller waits through the window instead of failing |
 | Error propagation | `dispatch_command` returns `success: False` on unknown actions and exceptions; tools raise `ToolError` instead of returning `"Error: ..."` strings |
 | Real liveness check | a `ping` action; `fl_connect` reports success only when FL answers, not when a port opens |
 | Own the MIDI port | the server creates its own virtual port named "FL Studio MCP" via `mido.open_output(name, virtual=True)`, verified working on macOS 2026-09-19. This removes the IAC Driver setup step entirely on macOS, and the same call works on Linux via ALSA. Windows has no virtual MIDI API, so loopMIDI stays required there |
