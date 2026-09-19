@@ -139,15 +139,21 @@ Articulation does not survive a MIDI round trip. FL's slide and portamento have 
 
 The FL Studio scripting API does **not** support loading new VST/AU plugins. You can only control parameters of plugins that are already loaded in your project.
 
-### Patterns Can Be Created
+### Patterns Cannot Be Created, And The One Function That Tries Freezes FL
 
-There is no single API function that creates a pattern outright.
-`patterns.findFirstNextEmptyPat()` exists in FL's official scripting API stubs,
-and selecting the next empty pattern slot and writing into it is pattern creation
-in practice. The claim this README used to make, that patterns cannot be created,
-was overstated. The server now has `fl_create_pattern`, which selects the next
-empty pattern, reuses it when it is already empty, and makes it current so the
-next write lands where you meant it to.
+`patterns.findFirstNextEmptyPat()` exists in FL's official scripting API stubs, and
+an earlier version of this README treated its existence as pattern creation. It is
+not usable. On FL Studio 2026 build 5406 it hangs the application: the window stops
+responding and every later command times out. That was measured twice on
+2026-09-19, first with flags 0 and then with the flag that suppresses FL's pattern
+name prompt, which ruled the prompt out as the cause. The stub marks the function
+HELP WANTED and documents two of its arguments as "???".
+
+`fl_create_pattern` therefore returns a refusal that says what to do instead:
+create the pattern in FL Studio by hand, then select it with
+`fl_set_pattern(select=True)`, which uses a different function and works. The
+refusal comes from the controller script, so a client calling the action directly
+gets the same protection.
 
 ### Cannot Place Clips In The Playlist
 

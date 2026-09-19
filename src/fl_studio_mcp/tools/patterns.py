@@ -151,18 +151,20 @@ def register_pattern_tools(mcp: FastMCP) -> None:
 
     @mcp.tool()
     def fl_create_pattern(name: str = "") -> dict:
-        """Make a new, empty pattern current.
+        """Disabled. This call froze FL Studio, and returns a refusal instead.
 
-        Selects the next empty pattern, creating a slot if every one is already
-        used. Call this before writing a new part so the notes go somewhere
-        intentional rather than on top of an existing idea.
+        The only API route to a new pattern is `patterns.findFirstNextEmptyPat`,
+        and on FL Studio 2026 build 5406 it hangs the application. Measured twice
+        on 2026-09-19: with flags 0, and again with the flag that suppresses FL's
+        pattern name prompt, which ruled the prompt out as the cause. Both times
+        the window stopped responding and every later command timed out.
 
-        Calling it twice returns the same pattern, because a pattern with no notes
-        is still empty. It will not rename an existing pattern.
+        So this tool refuses and explains. To work with a new pattern, create it in
+        FL Studio by hand, then select it with `fl_set_pattern(select=True)`, which
+        uses a different function and is verified working.
 
         Args:
-            name: What to call a newly created pattern. Ignored when an existing
-                  empty pattern is reused, so a name the user already chose is
-                  never overwritten.
+            name: Unused. Accepted so an existing call site keeps working, and
+                  reported back in the refusal.
         """
         return create_pattern(name)

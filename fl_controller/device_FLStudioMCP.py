@@ -2395,8 +2395,60 @@ def handle_patterns_select(params: dict) -> dict:
     return {"index": index, "current": patterns.patternNumber()}
 
 
+# Whether the two actions that allocate a pattern slot are allowed to run.
+#
+# They are not, and the reason is measured rather than cautious. On 2026-09-19,
+# `patterns.findFirstNextEmptyPat` froze FL Studio 2026 build 5406 twice, on two
+# separate live sessions:
+#
+#   * called as findFirstNextEmptyPat(0), the window showed a spinning wait cursor,
+#     the call never returned, and every later MIDI command timed out
+#   * called as findFirstNextEmptyPat(FFNEP_FindFirst | FFNEP_DontPromptName), with
+#     the None return value no longer used, it froze exactly the same way
+#
+# So the prompt flag was not the cause. The function is marked HELP WANTED in the
+# stubs, its x and y arguments are documented as "???", and on this build it hangs
+# the application. A tool that can hang somebody's DAW must not be one call away.
+#
+# `patterns.clonePattern` also allocates a pattern slot and has never been run live.
+# It is blocked for the same reason, as a precaution rather than on evidence: one
+# freeze cost a session already, and "the sibling function hung, so let us try this
+# one on your project" is not a sentence worth writing.
+#
+# The corrected createEmpty call is kept below, and `tests/test_pattern_creation.py`
+# exercises it by flipping this constant, so the day somebody verifies it against a
+# fresh FL Studio with a saved project, lifting the block is a one line change with
+# the call already tested.
+PATTERN_SLOT_CREATION_BLOCKED = True
+
+
+def _pattern_slot_refusal(action):
+    """The refusal returned by the two actions that would allocate a pattern slot."""
+    if not PATTERN_SLOT_CREATION_BLOCKED:
+        return None
+    return {
+        "error": (
+            "%s is disabled: patterns.findFirstNextEmptyPat froze FL Studio 2026 "
+            "build 5406 twice on 2026-09-19, both with and without the flag that "
+            "suppresses FL's pattern name prompt, so the freeze is inside the "
+            "function rather than in how it was called. Create the pattern in FL "
+            "Studio by hand, then select it with patterns.select, which is safe. "
+            "PATTERN_SLOT_CREATION_BLOCKED in this script is what would re-enable "
+            "this action, and only after the function has been verified against a "
+            "live FL Studio with the project saved first." % action
+        )
+    }
+
+
 def handle_patterns_clone(params: dict) -> dict:
-    """Copy a pattern, including its name and length."""
+    """Copy a pattern, including its name and length.
+
+    Refused while PATTERN_SLOT_CREATION_BLOCKED is set: clonePattern allocates a
+    pattern slot, and its sibling allocator hangs this FL Studio build.
+    """
+    refusal = _pattern_slot_refusal("patterns.clone")
+    if refusal is not None:
+        return refusal
     index = _require(params, "index", "patterns.clone")
     refusal = _check_pattern_index(index, "patterns.clone")
     if refusal is not None:
@@ -2411,6 +2463,9 @@ def handle_patterns_clone(params: dict) -> dict:
 
 def handle_patterns_create_empty(params: dict) -> dict:
     """Select the next empty pattern, creating a slot if every one is used.
+
+    Refused while PATTERN_SLOT_CREATION_BLOCKED is set. See that constant for the
+    two live freezes that put it there, and for why the call below is kept.
 
     patterns.findFirstNextEmptyPat exists in the stubs, which is why the claim
     that patterns cannot be created is overstated: selecting the next empty slot
@@ -2437,6 +2492,10 @@ def handle_patterns_create_empty(params: dict) -> dict:
     rather than leaving a stray empty slot behind, and an existing pattern is
     never renamed, because the user may already have called it something.
     """
+    refusal = _pattern_slot_refusal("patterns.createEmpty")
+    if refusal is not None:
+        return refusal
+
     before = patterns.patternCount()
     patterns.findFirstNextEmptyPat(midi.FFNEP_FindFirst | midi.FFNEP_DontPromptName)
 
