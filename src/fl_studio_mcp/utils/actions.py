@@ -82,3 +82,20 @@ MUTATING_ACTIONS = frozenset([
 def is_mutating(action: str) -> bool:
     """Whether an action changes the project, the transport or a window's visibility."""
     return action in MUTATING_ACTIONS
+
+
+# The piano roll script's own actions, which travel by request file rather than by
+# MIDI and so are not in the list above. Four of the six write notes, and the other two
+# read. Kept here so the journal has one place to ask, and pinned against the script's
+# handler table by `tests/test_actions.py`.
+PIANO_ROLL_MUTATING_ACTIONS = frozenset([
+    "add_chord",
+    "add_notes",
+    "clear",
+    "delete_notes",
+])
+
+
+def is_mutating_piano_roll(action: str) -> bool:
+    """Whether a piano roll request writes notes."""
+    return action in PIANO_ROLL_MUTATING_ACTIONS

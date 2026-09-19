@@ -22,6 +22,7 @@ import uuid
 from pathlib import Path
 from typing import Any
 
+from fl_studio_mcp.utils import journal
 from fl_studio_mcp.utils.paths import hardware_dir
 
 # Name of the virtual MIDI port the server creates for itself on platforms that
@@ -315,14 +316,24 @@ class MIDIConnection:
 
         Returns:
             The reply from FL Studio, carrying the id of the command it answers,
-            or a dict with "success": False and a specific "error".
+            or a dict with "success": False and a specific "error". A command that
+            changes the project is also written to the session journal, which never
+            raises and never changes the reply.
 
         Raises:
             RuntimeError: If the connection cannot be established.
         """
         self.ensure_connected()
+        # Timed and journaled outside the lock, so recording a command cannot extend
+        # how long the next caller waits. This is the single point every controller
+        # command passes through, which is what makes the journal trustworthy: an edit
+        # cannot reach FL without passing here. The piano roll path has its own hook,
+        # because note writes travel by request file instead of by MIDI.
+        started = time.perf_counter()
         with self._lock:
-            return self._send_command_locked(action, params, timeout)
+            reply = self._send_command_locked(action, params, timeout)
+        journal.record_command(action, params, reply, (time.perf_counter() - started) * 1000)
+        return reply
 
     def _send_command_locked(
         self,

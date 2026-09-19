@@ -26,6 +26,7 @@ import uuid
 from pathlib import Path
 from typing import TYPE_CHECKING
 
+from fl_studio_mcp.utils import journal
 from fl_studio_mcp.utils.connection import get_connection
 from fl_studio_mcp.utils.fl_trigger import get_trigger, trigger_fl_studio
 from fl_studio_mcp.utils.paths import piano_roll_scripts_dir
@@ -98,6 +99,44 @@ def target(channel: int) -> dict:
 
 
 def send_request(
+    request: dict,
+    timeout: float = RESPONSE_TIMEOUT,
+    wait_for_manual_trigger: float = 0.0,
+    channel: int | None = None,
+    verify: bool = False,
+) -> dict:
+    """Send one request to the piano roll script, record it, and return its reply.
+
+    This is the public entry point, and it differs from the implementation below in
+    exactly one way: a request that writes notes is written to the session journal,
+    with how long it took and whether it worked. Note writes travel by request file
+    rather than through the controller, so without this hook the journal would report
+    every fader move and no note edits, which is half an answer to "what changed".
+
+    Args:
+        request: The request dict, with an "action" key.
+        timeout: Seconds to wait for the reply.
+        wait_for_manual_trigger: Seconds to keep waiting when the automatic keystroke
+            could not be delivered.
+        channel: Channel Rack index to write into.
+        verify: Read the piano roll back after the write and report whether the notes
+            are actually there.
+
+    Returns:
+        The script's reply, or a dict with "success": False and a specific "error".
+    """
+    started = time.perf_counter()
+    result = _send_request(request, timeout, wait_for_manual_trigger, channel, verify)
+    journal.record_piano_roll(
+        str((request or {}).get("action")),
+        request,
+        result,
+        (time.perf_counter() - started) * 1000,
+    )
+    return result
+
+
+def _send_request(
     request: dict,
     timeout: float = RESPONSE_TIMEOUT,
     wait_for_manual_trigger: float = 0.0,
