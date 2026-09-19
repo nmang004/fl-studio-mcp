@@ -14,44 +14,29 @@ Communication flow:
 from __future__ import annotations
 
 import json
-import platform
 from pathlib import Path
 from typing import TYPE_CHECKING
 
 from fl_studio_mcp.utils.fl_trigger import get_trigger, trigger_fl_studio
+from fl_studio_mcp.utils.paths import piano_roll_scripts_dir
 
 if TYPE_CHECKING:
     from fastmcp import FastMCP
 
 
-def _get_fl_scripts_dir() -> Path:
-    """Get the FL Studio Piano Roll scripts directory."""
-    system = platform.system()
-
-    if system in ("Darwin", "Windows"):
-        base = Path.home() / "Documents" / "Image-Line" / "FL Studio" / "Settings"
-    else:
-        # Linux fallback (FL Studio doesn't officially support Linux)
-        base = Path.home() / ".fl-studio" / "Settings"
-
-    scripts_dir = base / "Piano roll scripts"
-    scripts_dir.mkdir(parents=True, exist_ok=True)
-    return scripts_dir
-
-
 def _get_request_file() -> Path:
     """Get the path to the MCP request JSON file."""
-    return _get_fl_scripts_dir() / "mcp_request.json"
+    return piano_roll_scripts_dir() / "mcp_request.json"
 
 
 def _get_response_file() -> Path:
     """Get the path to the MCP response JSON file."""
-    return _get_fl_scripts_dir() / "mcp_response.json"
+    return piano_roll_scripts_dir() / "mcp_response.json"
 
 
 def _get_state_file() -> Path:
     """Get the path to the piano roll state JSON file."""
-    return _get_fl_scripts_dir() / "piano_roll_state.json"
+    return piano_roll_scripts_dir() / "piano_roll_state.json"
 
 
 def _write_request(request: dict | list) -> None:
@@ -348,7 +333,7 @@ def register_piano_roll_tools(mcp: FastMCP) -> None:
             "platform": trigger.platform,
             "auto_trigger_supported": trigger.is_supported,
             "trigger_keystroke": trigger.keystroke,
-            "scripts_dir": str(_get_fl_scripts_dir()),
+            "scripts_dir": str(piano_roll_scripts_dir()),
             "request_file": str(_get_request_file()),
             "state_file": str(_get_state_file()),
             "request_file_exists": _get_request_file().exists(),

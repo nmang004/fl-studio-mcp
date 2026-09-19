@@ -20,10 +20,18 @@ import time
 from pathlib import Path
 from typing import Any
 
+from fl_studio_mcp.utils.paths import hardware_dir
+
 # Name of the virtual MIDI port the server creates for itself on platforms that
 # support one. FL Studio sees this as an ordinary MIDI input device, so no IAC
 # Driver (macOS) setup is needed.
 VIRTUAL_PORT_NAME = "FL Studio MCP"
+
+# Name of the virtual MIDI *input* port, used only by diagnostics that need to
+# hear FL Studio talk back (research spike T4, SysEx transport). It is a separate
+# port on purpose: FL Studio's MIDI Settings lists one entry per device name, so
+# reusing the output name would make the two ports indistinguishable in the GUI.
+VIRTUAL_INPUT_PORT_NAME = "FL Studio MCP Probe"
 
 # Substrings identifying a virtual MIDI port that is plausibly wired to FL Studio.
 # A port must match one of these to be used automatically. Never fall back to
@@ -76,17 +84,7 @@ def select_existing_port(output_ports: list[str], preferred: str | None) -> str 
 
 def _get_fl_hardware_dir() -> Path:
     """Get the FL Studio Hardware scripts directory."""
-    system = platform.system()
-
-    if system in ("Darwin", "Windows"):
-        base = Path.home() / "Documents" / "Image-Line" / "FL Studio" / "Settings"
-    else:
-        # Linux fallback
-        base = Path.home() / ".fl-studio" / "Settings"
-
-    hardware_dir = base / "Hardware" / "FLStudioMCP"
-    hardware_dir.mkdir(parents=True, exist_ok=True)
-    return hardware_dir
+    return hardware_dir()
 
 
 class MIDIConnection:
@@ -172,12 +170,15 @@ class MIDIConnection:
         # Nothing suitable exists. On macOS and Linux we can create our own port,
         # which FL Studio then sees as a normal MIDI input device.
         if _supports_virtual_ports():
+            # The port name is overridable so diagnostics can create a port with
+            # a distinct name without disturbing the one the server owns.
+            port_name = os.environ.get("FL_STUDIO_MCP_VIRTUAL_PORT_NAME", VIRTUAL_PORT_NAME)
             try:
-                self._port = mido.open_output(VIRTUAL_PORT_NAME, virtual=True)
+                self._port = mido.open_output(port_name, virtual=True)
             except Exception as e:
                 self._error = f"Failed to create virtual MIDI port: {e}"
                 return False
-            self._port_name = VIRTUAL_PORT_NAME
+            self._port_name = port_name
             self._is_virtual = True
             self._connected = True
             self._error = None
