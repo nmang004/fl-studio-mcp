@@ -166,6 +166,30 @@ def test_send_notes_reports_the_notes_it_landed(wired):
     assert sorted(n.number for n in wired.project.notes) == [60, 64]
 
 
+def test_the_tools_do_not_advertise_a_parameter_that_does_nothing(wired):
+    """`auto_trigger=False` used to be accepted and then ignored.
+
+    A tool surface is a prompt. A parameter that silently does nothing teaches
+    the model something false about the system, so it is gone: the tools always
+    trigger, and wait briefly for a manual hotkey press if the automatic one
+    cannot be delivered.
+    """
+    import inspect
+
+    from fl_studio_mcp import server
+
+    tools = {
+        name: fn
+        for name, fn in inspect.getmembers(server, inspect.isfunction)
+        if name.startswith("fl_") and name.startswith(("fl_send", "fl_delete", "fl_clear"))
+    }
+    source = inspect.getsource(server)
+    assert "auto_trigger" not in source, (
+        "an auto_trigger parameter is back; it does nothing, so it misleads callers"
+    )
+    del tools
+
+
 def test_get_piano_roll_state_refreshes_before_reading(wired):
     """Returning a stale file was the old behaviour."""
     result = piano_roll.refresh_and_read_state()

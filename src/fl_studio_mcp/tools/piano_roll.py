@@ -208,7 +208,6 @@ def register_piano_roll_tools(mcp: FastMCP) -> None:
     def fl_send_notes(
         notes: list[dict],
         mode: str = "add",
-        auto_trigger: bool = True,
     ) -> str:
         """Add or replace notes in the FL Studio piano roll.
 
@@ -229,7 +228,6 @@ def register_piano_roll_tools(mcp: FastMCP) -> None:
                    - pan (float, optional): Per-note pan, -1.0 to 1.0
                    - group (int, optional): Note group, for removing a phrase later
             mode: "add" to add notes, "replace" to clear existing notes first
-            auto_trigger: Whether to trigger FL Studio automatically
 
         Reports what actually landed, read back from FL Studio, or a specific
         failure. It does not report success it has not confirmed.
@@ -278,7 +276,6 @@ def register_piano_roll_tools(mcp: FastMCP) -> None:
         time: float = 0,
         duration: float = 1.0,
         velocity: float = 0.8,
-        auto_trigger: bool = True,
     ) -> str:
         """Add a chord (multiple simultaneous notes) to the FL Studio piano roll.
 
@@ -287,7 +284,6 @@ def register_piano_roll_tools(mcp: FastMCP) -> None:
             time: Start position in quarter notes (default 0)
             duration: Length in quarter notes for all notes (default 1.0)
             velocity: Velocity 0.0-1.0 for all notes (default 0.8)
-            auto_trigger: Whether to trigger FL Studio automatically
 
         Example:
             fl_send_chord([60, 64, 67], time=0, duration=1.0)
@@ -314,14 +310,13 @@ def register_piano_roll_tools(mcp: FastMCP) -> None:
         )
 
     @mcp.tool()
-    def fl_delete_notes(notes: list[dict], auto_trigger: bool = True) -> str:
+    def fl_delete_notes(notes: list[dict]) -> str:
         """Delete specific notes from the FL Studio piano roll.
 
         Args:
             notes: List of notes to delete, matching on midi and time:
                    - midi (int): MIDI note number
                    - time (float): Start position in quarter notes
-            auto_trigger: Whether to trigger FL Studio automatically
 
         Example:
             [{"midi": 60, "time": 0}, {"midi": 64, "time": 0}]
@@ -345,11 +340,10 @@ def register_piano_roll_tools(mcp: FastMCP) -> None:
         return f"Deleted {deleted} note(s).{_trigger_note()}"
 
     @mcp.tool()
-    def fl_clear_piano_roll(auto_trigger: bool = True) -> str:
+    def fl_clear_piano_roll() -> str:
         """Clear all notes from the FL Studio piano roll.
 
         Args:
-            auto_trigger: Whether to trigger FL Studio automatically
         """
         result = send_request({"action": "clear"}, wait_for_manual_trigger=RESPONSE_TIMEOUT)
         if not result.get("success"):

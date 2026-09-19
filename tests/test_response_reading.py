@@ -139,6 +139,50 @@ def test_the_controller_does_not_need_a_rename_to_write(controller):
     assert "rename" not in called
 
 
+def test_the_pyscript_calls_no_blocked_filesystem_function():
+    """The piano roll sandbox blocks os.replace too, and it crashed there.
+
+    Measured on FL Studio 2026, build 5406, from inside a piano roll script:
+
+        os.replace(temporary, path)
+        SystemError: error return without exception set
+
+    The builtin open() does work in this sandbox, unlike the controller sandbox,
+    so the blocklist here is the rename and directory family only. This test
+    exists because the code belied its own docstring: it claimed this sandbox was
+    an ordinary CPython, and FL answered with an error dialog.
+    """
+    import ast
+
+    from tests.helpers import PYSCRIPT_PATH
+
+    blocked = {
+        "replace",
+        "rename",
+        "remove",
+        "removedirs",
+        "rmdir",
+        "mkdir",
+        "makedirs",
+        "unlink",
+        "glob",
+        "rglob",
+        "walk",
+    }
+    tree = ast.parse(PYSCRIPT_PATH.read_text())
+    offenders = []
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Call):
+            continue
+        func = node.func
+        if isinstance(func, ast.Attribute) and func.attr in blocked:
+            offenders.append(f"{func.attr}() at line {node.lineno}")
+        elif isinstance(func, ast.Name) and func.id in blocked:
+            offenders.append(f"{func.id}() at line {node.lineno}")
+
+    assert not offenders, f"the pyscript calls functions FL's sandbox blocks: {offenders}"
+
+
 def test_the_controller_calls_no_blocked_filesystem_function():
     """FL's Python sandbox blocks a set of filesystem calls.
 

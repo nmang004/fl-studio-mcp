@@ -56,16 +56,22 @@ FLAG_NOTE_PROPERTIES = ("slide", "porta", "release", "muted", "selected")
 
 
 def _write_json(path, data):
-    """Write JSON atomically, beside the target and then moved into place.
+    """Write JSON to the target file directly, ending with a newline.
 
-    The server polls for these files, so it must never observe a half-written
-    one. This sandbox is an ordinary CPython; the restrictions that block
-    os.replace apply to the controller sandbox, not here.
+    Not atomically, and not through a temporary file: os.replace is blocked in
+    this sandbox exactly as it is in the controller sandbox. Measured on FL
+    Studio 2026, build 5406, from a piano roll script:
+
+        os.replace(temporary, path)
+        SystemError: error return without exception set
+
+    The trailing newline is what lets the server tell a finished file from one it
+    caught mid write, since the write cannot be made atomic. The builtin open()
+    works here, unlike in the controller sandbox.
     """
-    temporary = path + ".tmp"
-    with open(temporary, "w") as handle:
+    with open(path, "w") as handle:
         json.dump(data, handle, indent=2)
-    os.replace(temporary, path)
+        handle.write("\n")
 
 
 def _read_requests():
