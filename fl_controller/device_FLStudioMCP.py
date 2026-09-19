@@ -82,6 +82,9 @@ RESPONSE_FILE = SCRIPT_DIR / "mcp_response.json"
 # MIDI trigger note
 TRIGGER_NOTE = 127
 
+# From the stubs: ui.showWindow indices. The piano roll is window 3.
+WID_PIANO_ROLL = 3
+
 
 def OnInit():
     """Called when the script is loaded."""
@@ -266,6 +269,10 @@ def _route_command(action: str, params: dict) -> dict:
         return handle_channels_select(params)
     elif action == "channels.selectOne":
         return handle_channels_select_one(params)
+    elif action == "channels.selectPianoRoll":
+        return handle_channels_select_piano_roll(params)
+    elif action == "channels.getSelectedChannel":
+        return handle_channels_get_selected_channel(params)
     elif action == "channels.triggerNote":
         return handle_channels_trigger_note(params)
     elif action == "channels.setVolume":
@@ -487,6 +494,7 @@ MUTATING_ACTIONS = frozenset([
     "channels.routeToMixer",
     "channels.select",
     "channels.selectOne",
+    "channels.selectPianoRoll",
     "channels.setChannelColor",
     "channels.setChannelName",
     "channels.setChannelPan",
@@ -997,6 +1005,51 @@ def handle_channels_select_one(params: dict) -> dict:
     index = _require(params, "index", "channels.selectOne")
     channels.selectOneChannel(index, True)
     return {"channel_name": channels.getChannelName(index, True)}
+
+
+def handle_channels_select_piano_roll(params: dict) -> dict:
+    """Select a channel and open its piano roll.
+
+    This is how a caller aims the piano roll tools. The piano roll window shows
+    whichever channel is selected in the Channel Rack, so selecting first is what
+    makes the target unambiguous. A piano roll script cannot do this for itself:
+    flpianoroll exposes no channel identity at all.
+
+    The selection is read back rather than assumed, because knowing which piano
+    roll is about to be written to is the entire point.
+    """
+    index = _require(params, "index", "channels.selectPianoRoll")
+    count = channels.channelCount(True)
+    if not 0 <= index < count:
+        return {
+            "error": (
+                "channels.selectPianoRoll: channel %d does not exist. This project "
+                "has %d channels, indexed 0 to %d."
+                % (index, count, count - 1)
+            )
+        }
+
+    channels.selectOneChannel(index, True)
+    ui.showWindow(WID_PIANO_ROLL)
+
+    return {
+        "targeted": index,
+        "selected": channels.selectedChannel(canBeNone=True, indexGlobal=True),
+        "channel_name": channels.getChannelName(index, True),
+        "piano_roll_visible": bool(ui.getVisible(WID_PIANO_ROLL)),
+    }
+
+
+def handle_channels_get_selected_channel(params: dict) -> dict:
+    """Report which channel is selected, and its name.
+
+    Read-only, and never refused: a caller has to be able to ask where it is
+    before it can decide whether to move.
+    """
+    index = channels.selectedChannel(canBeNone=True, indexGlobal=True)
+    if index is None or index < 0:
+        return {"index": None, "channel_name": None}
+    return {"index": index, "channel_name": channels.getChannelName(index, True)}
 
 
 def handle_channels_trigger_note(params: dict) -> dict:
