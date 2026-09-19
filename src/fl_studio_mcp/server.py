@@ -35,6 +35,7 @@ from fl_studio_mcp.tools import (
     register_plugin_tools,
     register_project_tools,
     register_routing_tools,
+    register_score_tools,
     register_tempo_tools,
     register_transport_tools,
 )
@@ -199,6 +200,7 @@ register_eq_tools(mcp)
 register_routing_tools(mcp)
 register_project_tools(mcp)
 register_tempo_tools(mcp)
+register_score_tools(mcp)
 
 
 def main():

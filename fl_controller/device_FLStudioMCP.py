@@ -202,6 +202,8 @@ def _route_command(action: str, params: dict) -> dict:
         return handle_system_get_info()
     elif action == "system.ping":
         return handle_system_ping()
+    elif action == "system.getPpq":
+        return handle_system_get_ppq()
     elif action == "system.batch":
         return handle_system_batch(params)
     elif action == "system.tempoProbe":
@@ -717,6 +719,19 @@ def handle_system_batch(params: dict) -> dict:
         "undo_name": undo_name,
         "undo_history_count": _undo_count(),
     }
+
+
+def handle_system_get_ppq() -> dict:
+    """The project's timebase, which is ticks per quarter note.
+
+    The piano roll sandbox reports its own PPQ through flpianoroll.score, but a
+    caller that has not run a piano roll script needs it from somewhere, and this is
+    the controller's copy of the same number.
+    """
+    try:
+        return {"ppq": general.getRecPPQ()}
+    except Exception as e:
+        return {"error": f"general.getRecPPQ is unavailable: {e}"}
 
 
 def handle_system_ping() -> dict:

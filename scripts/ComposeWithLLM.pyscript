@@ -226,6 +226,26 @@ def _handle_delete_notes(request):
     return {"notes_added": 0, "notes_deleted": deleted}
 
 
+def _handle_get_context(request):
+    """Report the project's key and meter, which only this sandbox can see.
+
+    flpianoroll.score exposes snap_root_note, snap_scale_helper, tsnum and tsden,
+    and nothing in the controller sandbox can reach them. snap_scale_helper is a
+    string of 0 and 1 separated by commas, always aligned to C, where 0 means in the
+    scale. It is not an index, and reading it as one is a silent way to get a wrong
+    key.
+    """
+    return {
+        "notes_added": 0,
+        "notes_deleted": 0,
+        "root_note": flp.score.snap_root_note,
+        "scale_helper": flp.score.snap_scale_helper,
+        "tsnum": flp.score.tsnum,
+        "tsden": flp.score.tsden,
+        "ppq": flp.score.PPQ,
+    }
+
+
 def _handle_get_state(request):
     """Export the state and change nothing.
 
@@ -242,6 +262,7 @@ HANDLERS = {
     "clear": _handle_clear,
     "delete_notes": _handle_delete_notes,
     "get_state": _handle_get_state,
+    "get_context": _handle_get_context,
 }
 
 
@@ -354,6 +375,12 @@ def apply(form=None):
         "group_name": responses[0].get("group_name") if len(responses) == 1 else None,
         "requests_processed": len(responses),
         "notes_added": sum(response["notes_added"] for response in responses),
+        # The context fields, passed through so one call answers the question.
+        "root_note": responses[0].get("root_note") if len(responses) == 1 else None,
+        "scale_helper": responses[0].get("scale_helper") if len(responses) == 1 else None,
+        "tsnum": responses[0].get("tsnum") if len(responses) == 1 else None,
+        "tsden": responses[0].get("tsden") if len(responses) == 1 else None,
+        "context_ppq": responses[0].get("ppq") if len(responses) == 1 else None,
         "notes_deleted": sum(response["notes_deleted"] for response in responses),
         "error": "; ".join(errors) if errors else None,
     })
