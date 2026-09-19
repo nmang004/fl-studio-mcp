@@ -2380,19 +2380,40 @@ git commit -m "Add CI, the smoke test checklist, and a committed lockfile"
 
 ## Phase 0 exit criteria
 
-The roadmap's own bar, restated so it can be checked rather than believed:
+Checked on 2026-09-19 against the committed tree.
 
-- [ ] `uv run pytest` passes on a machine with no FL Studio installed, from a
-      clean clone, on macOS and Windows.
-- [ ] `uv run ruff check .` is clean.
-- [ ] CI is green on both platforms and both Python versions.
-- [ ] `docs/SMOKE_TEST.md` exists and its items have been run once by hand against
-      live FL Studio, with the result recorded.
-- [ ] The controller script, the pyscript and the server all agree on the settings
-      directory, proven by test.
-- [ ] No fake defines a function the stubs do not, proven by test.
-- [ ] `uv run python scripts/dev_verify_connection.py` still reports a round trip
-      near 1ms, after the Task 1 controller changes are copied into FL.
+- [x] `uv run pytest` passes on a machine with no FL Studio installed, from a
+      clean clone. 154 tests, verified by cloning the repo to /tmp and running
+      `uv sync --dev --locked && uv run pytest` with no FL Studio involved.
+- [x] `uv run ruff check .` is clean.
+- [ ] CI is green on both platforms and both Python versions. The workflow is
+      written and its exact commands were run against a clean clone locally, but
+      it has not run on GitHub yet because nothing has been pushed.
+- [x] `docs/SMOKE_TEST.md` exists and has been run by hand against live FL
+      Studio, with the result recorded in its Record section. Two items could not
+      be run and are recorded as such: the automatic keystroke, which macOS
+      refused with error 1002, and Windows, which is not available here.
+- [x] The controller script, the pyscript and the server all agree on the
+      settings directory, proven by tests in `tests/test_paths.py` and
+      `tests/test_controller_settings_dir.py`.
+- [x] No fake defines a function the stubs do not, proven by
+      `tests/test_harness_contract.py`, which derives the required surface from
+      the scripts' own parse trees and asserts the absence of a playlist clip
+      function and a plugin loader.
+- [x] `uv run python scripts/dev_verify_connection.py` still reports a round trip
+      near 1ms after the controller changes were copied into FL: 1.1ms median.
+
+Two things the live run changed about this plan, recorded so the plan does not
+read as if it went the way it was written:
+
+- The plan asked for atomic writes via `os.replace` on both sides. That is
+  impossible inside FL: the sandbox blocks `os.replace` in the piano roll sandbox
+  and both `os.replace` and `mkdir` in the controller sandbox. What landed is a
+  reader on the server that tolerates catching a file mid write, on both
+  response paths, plus tests that fail if a blocked call reappears.
+- The plan treated read-only behaviour as safely testable by hand. It was not
+  enough: the two blocked syscalls and the unbound keystroke were all invisible to
+  the suite and only appeared when the scripts ran inside FL.
 
 ## What Phase 0 deliberately does not do
 
