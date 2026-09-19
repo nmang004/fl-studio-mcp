@@ -178,7 +178,16 @@ def dispatch_command(action: str, params: dict) -> dict:
 
 
 def _route_command(action: str, params: dict) -> dict:
-    """Send a command to its handler. Raises ValueError for a refused call."""
+    """Send a command to its handler.
+
+    Raises ValueError for a refused call. Returns an error dict when FL reports
+    the project is not safe to edit, which is checked here rather than in the
+    transport so that every entry point is covered, including a direct call from
+    the batch runner or from a test.
+    """
+    refusal = _check_editable(action)
+    if refusal is not None:
+        return refusal
 
     # System commands
     if action == "system.getInfo":
@@ -468,6 +477,79 @@ def handle_general_undo_up_down(params: dict) -> dict:
     return {"moved": int(value), "count": _undo_count()}
 
 
+# Actions that change the project. Anything not listed is treated as a read, which
+# is the safe default in the only direction that matters: refusing a read would
+# break diagnostics exactly when a user needs them, while allowing a write can
+# corrupt the project.
+MUTATING_ACTIONS = frozenset([
+    "channels.mute",
+    "channels.muteChannel",
+    "channels.routeToMixer",
+    "channels.select",
+    "channels.selectOne",
+    "channels.setChannelColor",
+    "channels.setChannelName",
+    "channels.setChannelPan",
+    "channels.setChannelPitch",
+    "channels.setChannelVolume",
+    "channels.setColor",
+    "channels.setGridBit",
+    "channels.setName",
+    "channels.setPan",
+    "channels.setStepSequence",
+    "channels.setTargetFxTrack",
+    "channels.setVolume",
+    "channels.solo",
+    "channels.soloChannel",
+    "channels.triggerNote",
+    "general.restoreUndo",
+    "general.restoreUndoLevel",
+    "general.undo",
+    "general.undoUpDown",
+    "mixer.armTrack",
+    "mixer.muteTrack",
+    "mixer.setStereoSep",
+    "mixer.setTrackColor",
+    "mixer.setTrackName",
+    "mixer.setTrackPan",
+    "mixer.setTrackVolume",
+    "mixer.soloTrack",
+    "plugins.nextPreset",
+    "plugins.prevPreset",
+    "plugins.setParamValue",
+    # system.batch is deliberately absent. The batch handler checks editability
+    # itself, before running anything, so that a refusal can be reported in the
+    # shape a batch response has, with the counts a caller reads. Its individual
+    # commands are checked here as they are dispatched.
+    "transport.record",
+    "transport.setLoopMode",
+    "transport.setPlaybackSpeed",
+    "transport.setPosition",
+    "transport.start",
+    "transport.stop",
+])
+
+
+def _check_editable(action: str):
+    """Refuse a mutation when FL reports the project is not safe to edit.
+
+    None means the question could not be asked, which is what API versions below
+    29 give. Unknown is not the same as no: refusing on unknown would break every
+    install older than API 29, so unknown proceeds.
+    """
+    if action not in MUTATING_ACTIONS:
+        return None
+    if _safe_to_edit() is False:
+        return {
+            "error": (
+                "Refusing to edit: FL Studio reports it is not safe to edit the "
+                "project right now, so %s was not run. Try again once the current "
+                "operation has finished." % action
+            )
+        }
+    return None
+
+
 def handle_system_batch(params: dict) -> dict:
     """Run several commands from one trigger, inside one undo point.
 
@@ -482,6 +564,23 @@ def handle_system_batch(params: dict) -> dict:
     commands = params.get("commands")
     if not isinstance(commands, list) or not commands:
         return {"error": "system.batch requires a non-empty 'commands' list"}
+
+    # Checked once for the whole batch as well as per command. Without this a
+    # batch would apply its first command and only then discover it may not edit,
+    # which is the half-applied edit the batch exists to prevent.
+    if _check_editable("system.batch") is not None:
+        return {
+            "success": False,
+            "results": [],
+            "executed": 0,
+            "failed": 0,
+            "undo_name": None,
+            "undo_history_count": _undo_count(),
+            "error": (
+                "Refusing to edit: FL Studio reports it is not safe to edit the "
+                "project right now, so no command in this batch was run."
+            ),
+        }
 
     for index, command in enumerate(commands):
         if not isinstance(command, dict) or not command.get("action"):

@@ -12,6 +12,7 @@ Usage:
 
 from __future__ import annotations
 
+import json
 import statistics
 import time
 
@@ -116,25 +117,23 @@ def check_unknown_action_bug() -> None:
 
 
 def check_double_execution_bug() -> None:
-    """Audit bug 1: an abandoned command makes the NEXT command execute twice.
+    """Audit bug 1: an abandoned command used to make the NEXT command run twice.
 
-    There are no request IDs, so a trigger note is just "run whatever is in the
-    command file now". Timing out does not cancel the trigger already in flight.
+    In the old design there were no request ids, so a trigger note meant "run
+    whatever is in the command file now". Timing out does not cancel a trigger
+    already in flight, so the abandoned trigger would read the command file
+    written by the next call and run that, and then the next trigger would run it
+    again.
 
-    Sequence, with FL taking roughly 23ms to service a trigger:
-        t=0     write command A, send trigger A, give up after 1ms
-        t=1ms   write command B, send trigger B
-        t=23ms  FL services trigger A, reads the file, finds B, runs B
-        t=46ms  FL services trigger B, reads the file, finds B, runs B again
+    Since Phase 1 every command carries an id and a reply is only accepted when
+    the id matches the command in flight, so a stale trigger's answer is ignored
+    rather than consumed. This check is kept because the failure is invisible when
+    it happens: a read that runs twice looks fine, and a toggle that runs twice
+    cancels itself.
 
-    Command B therefore runs twice. For a read this is invisible. For a toggle
-    (play, record, arm, mute without an explicit value) the second run cancels
-    the first, which is why playback appears not to respond.
-
-    Detected here by counting how many times FL writes a response, which is
-    read-only: the probe command is a track count.
+    Read-only: the probe command is a track count.
     """
-    _hr("6. Bug: an abandoned command makes the next one run twice")
+    _hr("6. Check: an abandoned command must not run the next one twice")
     conn = get_connection()
     response_file = conn._response_file  # noqa: SLF001 - diagnostic script
     command_file = conn._command_file  # noqa: SLF001 - diagnostic script
@@ -145,13 +144,17 @@ def check_double_execution_bug() -> None:
     if response_file.exists():
         response_file.unlink()
 
-    # Command A, abandoned after 1ms. Its trigger is still in flight.
+    # Command A, abandoned immediately. Its trigger may or may not be in flight.
     abandoned = conn.send_command("mixer.getTrackCount", timeout=0.001)
-    print(f"abandoned call (1ms timeout) -> {str(abandoned)[:60]}")
+    if abandoned.get("success"):
+        print("the abandoned call answered within 1ms, so nothing was abandoned")
+        print("this run cannot exercise the race, because FL is simply that fast")
+    else:
+        print("abandoned call (1ms timeout) timed out, so its trigger is in flight")
 
-    # Command B, written and triggered while A's trigger is unserviced.
+    # Command B, written and triggered while A's trigger may still be unserviced.
     command_file.write_text(
-        '{"action": "mixer.getTrackCount", "params": {}}'
+        json.dumps({"action": "mixer.getTrackCount", "params": {}, "id": "probe-b"})
     )
     if response_file.exists():
         response_file.unlink()
@@ -171,14 +174,10 @@ def check_double_execution_bug() -> None:
 
     print(f"responses written for a single follow-up command: {executions}")
     if executions >= 2:
-        print("\nREPRODUCED: FL executed the follow-up command twice.")
-        print("On a toggle such as fl_play or fl_record the second run cancels")
-        print("the first, so the tool reports success and nothing happens.")
-        print("Fix: request IDs, so a stale trigger finds no matching work.")
+        print("\nREGRESSED: FL ran the follow-up command twice. On a toggle such")
+        print("as fl_play or fl_record the second run cancels the first.")
     elif executions == 1:
-        print("\nnot reproduced on this run; the race depends on FL's servicing")
-        print("time relative to the timeout. The missing correlation is")
-        print("structural regardless, and two MCP clients hit it with no timeout.")
+        print("\nOK: the follow-up command ran exactly once.")
     else:
         print("\ninconclusive: no response observed at all.")
 
