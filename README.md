@@ -64,15 +64,26 @@ The FL Studio scripting API does **not** support loading new VST/AU plugins. You
 
 ### Cannot Create Patterns
 
-There is no API to programmatically create new patterns. You can only work with existing patterns.
+There is no function that creates a pattern outright, but
+`patterns.findFirstNextEmptyPat()` exists in the scripting API and selects the
+next empty pattern slot. Writing into that slot is pattern creation in practice,
+so this is a missing tool rather than a missing capability. Phase 3 of
+`ROADMAP.md` covers adding it.
+
+### Cannot Place Clips In The Playlist
+
+The `playlist` module has no add, insert or create function. Markers and live
+clips in performance mode are the ceiling, so building a full arrangement
+programmatically is out. Confirmed against the stubs, and enforced by a test that
+fails if the fake `playlist` module ever grows such a function.
 
 ## Requirements
 
 - **FL Studio 20.7+** (MIDI Controller Scripting API)
 - **Python 3.10+**
 - **macOS** or **Windows**
-  - macOS: IAC Driver (built-in, needs to be enabled)
-  - Windows: [loopMIDI](https://www.tobias-erichsen.de/software/loopmidi.html)
+  - macOS: nothing extra, the server creates its own virtual MIDI port
+  - Windows: [loopMIDI](https://www.tobias-erichsen.de/software/loopmidi.html), because Windows has no virtual MIDI API
 
 ## Which AI Clients Work With This?
 
@@ -124,7 +135,7 @@ Both installers will:
 
 1. Install [uv](https://github.com/astral-sh/uv) if not present
 2. Install Python dependencies
-3. Guide you through enabling virtual MIDI ports (IAC Driver on Mac, loopMIDI on Windows)
+3. Guide you through the MIDI setup: nothing on macOS, where the server creates its own virtual port, and a loopMIDI port on Windows
 4. Install the FL Studio MIDI controller script
 5. Install the Piano Roll script (ComposeWithLLM)
 6. Configure Claude Desktop or Claude Code automatically (`scripts/install_mcp_for_claude.sh` / `scripts/install_mcp_for_claude.ps1`)
@@ -143,21 +154,29 @@ uv sync
 pip install -e .
 ```
 
-### 2. Enable Virtual MIDI Ports
+### 2. Virtual MIDI Ports
 
-#### macOS (IAC Driver)
+#### macOS
 
-1. Open **Audio MIDI Setup** (search in Spotlight)
-2. Press **Cmd+2** or go to **Window > Show MIDI Studio**
-3. Double-click on **IAC Driver**
-4. Check **"Device is online"**
-5. Click **Apply**
+Nothing to do. The server creates its own virtual MIDI port named **FL Studio
+MCP** when it starts, and FL Studio sees it as an ordinary MIDI input. The IAC
+Driver is no longer needed, and the server will not use it unless you ask it to.
 
-#### Windows (loopMIDI)
+A virtual port exists only while the process that created it is running, and only
+that process can send to it. That is why the server owns the port rather than
+looking for one: it has to be the sender.
+
+#### Windows
+
+Windows has no virtual MIDI API, so you need a loopback driver:
 
 1. Download and install [loopMIDI](https://www.tobias-erichsen.de/software/loopmidi.html)
-2. Create a virtual port (any name works)
+2. Create a port, and name it **FL Studio MCP** so the server finds it
 3. Keep loopMIDI running while using FL Studio
+
+Set `FL_STUDIO_MCP_MIDI_PORT` to match a differently named port. The server will
+not fall back to the first available port, because on a typical machine that is
+real hardware and the trigger note would be sent to your keyboard or interface.
 
 ### 3. Install FL Studio Scripts
 
@@ -183,12 +202,15 @@ cp scripts/ComposeWithLLM.pyscript ~/Documents/Image-Line/FL\ Studio/Settings/Pi
 copy scripts\ComposeWithLLM.pyscript "%USERPROFILE%\Documents\Image-Line\FL Studio\Settings\Piano roll scripts\"
 ```
 
+Later edits to either script only need the file copied again: the controller
+script hot-reloads, so FL Studio does not have to restart. The first install does.
+
 ### 4. Configure FL Studio
 
 1. **Restart FL Studio** (if it's running)
 2. Go to **Options > MIDI Settings**
-3. Under **Input**, find your virtual MIDI port (e.g., "IAC Driver Bus 1")
-4. Set the **Controller type** to **FLStudioMCP**
+3. Under **Input**, find **FL Studio MCP** (macOS) or your loopMIDI port (Windows)
+4. Set the **Controller type** to **FL Studio MCP Controller**
 5. Enable the port (click to highlight it)
 
 ### 5. Configure Claude (or another MCP client)
@@ -358,10 +380,12 @@ fl-studio-mcp
 ### "Not connected to FL Studio"
 
 1. Ensure FL Studio is running
-2. Check that the FLStudioMCP controller is enabled in MIDI Settings
-3. On Mac, verify IAC Driver is enabled in Audio MIDI Setup
-4. On Windows, verify loopMIDI is running
-5. Restart FL Studio after enabling the controller
+2. Check that the FL Studio MCP Controller is enabled in MIDI Settings
+3. On macOS, give FL Studio a few seconds: it takes 2.0 to 2.3 seconds to bind a
+   newly created virtual MIDI port, and commands sent before that are dropped
+4. On Windows, verify loopMIDI is running and the port is named **FL Studio MCP**,
+   or set `FL_STUDIO_MCP_MIDI_PORT` to match
+5. Restart FL Studio after enabling the controller for the first time
 
 ### "Timeout waiting for FL Studio response"
 
@@ -379,8 +403,12 @@ fl-studio-mcp
 
 ### No MIDI ports available
 
-- **macOS**: Enable IAC Driver in Audio MIDI Setup
-- **Windows**: Install and run loopMIDI
+- **macOS**: this should not happen, because the server creates its own port. If
+  it does, another process may already hold a port named "FL Studio MCP". Quit it,
+  or set `FL_STUDIO_MCP_VIRTUAL_PORT_NAME` to a different name and enable that
+  name in FL Studio's MIDI Settings.
+- **Windows**: install and run loopMIDI, and name the port **FL Studio MCP**, or
+  set `FL_STUDIO_MCP_MIDI_PORT` to match the name you used.
 
 ## Architecture
 

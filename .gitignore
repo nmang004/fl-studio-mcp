@@ -1,6 +1,5 @@
 .venv/
 .claude/
-uv.lock
 
 __pycache__/
 *.py[cod]
