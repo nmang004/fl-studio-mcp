@@ -72,9 +72,17 @@ def build(project: FakeProject) -> ModuleType:
             """The region the user highlighted, as (start, end) in ticks."""
             return self._project.timeline_selection
 
+        def getNextFreeGroupIndex(self):
+            """The next free group index, advancing so two groups are not one.
+
+            A method on the score object, which is where the stubs define it. Group
+            0 is the ungrouped state, so the first assignable index is 1.
+            """
+            self._project.group_index += 1
+            return self._project.group_index
+
     module.Note = Note
     module.score = _Score(project)
-    module.getNextFreeGroupIndex = lambda: project.group_index
     module.setHasSeenWelcome = lambda: None
 
     del score

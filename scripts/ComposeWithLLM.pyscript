@@ -156,15 +156,38 @@ def _note_from(data):
     return note
 
 
+def _assign_group(request):
+    """The group index this request should stamp on its notes, or None.
+
+    flp.score.getNextFreeGroupIndex() lives in this sandbox and nowhere else, so the
+    script assigns it rather than the server. Note that it is a method on the score
+    object, not a module function: the stubs define it on Score, and calling it on
+    the module is an AttributeError that only appears at run time inside FL. Its
+    docstring says to add one group's notes before calling it again, so this resolves
+    once per request rather than per note.
+
+    An explicit number on a note wins over this, because a caller that named a group
+    for one note meant it.
+    """
+    if not request.get("group"):
+        return None
+    return flp.score.getNextFreeGroupIndex()
+
+
 def _handle_add_notes(request):
+    group = _assign_group(request)
     added = 0
     for data in request.get("notes", []):
-        flp.score.addNote(_note_from(data))
+        note = _note_from(data)
+        if group is not None and "group" not in data:
+            note.group = group
+        flp.score.addNote(note)
         added += 1
-    return {"notes_added": added, "notes_deleted": 0}
+    return {"notes_added": added, "notes_deleted": 0, "group": group}
 
 
 def _handle_add_chord(request):
+    group = _assign_group(request)
     base_time = _beat_to_ticks(request.get("time", 0))
     default_duration = request.get("duration", 1.0)
     added = 0
@@ -172,10 +195,12 @@ def _handle_add_chord(request):
         data = dict(data)
         data.setdefault("duration", default_duration)
         note = _note_from(data)
+        if group is not None and "group" not in data:
+            note.group = group
         note.time = base_time + _beat_to_ticks(data.get("offset", 0))
         flp.score.addNote(note)
         added += 1
-    return {"notes_added": added, "notes_deleted": 0}
+    return {"notes_added": added, "notes_deleted": 0, "group": group}
 
 
 def _handle_clear(request):
@@ -228,6 +253,8 @@ def _handle(request):
         "id": request.get("id"),
         "notes_added": 0,
         "notes_deleted": 0,
+        "group": None,
+        "group_name": request.get("group_name"),
         "error": None,
     }
 
@@ -321,6 +348,10 @@ def apply(form=None):
         # the request it sent. With a batch there is no single id to echo.
         "success": not errors,
         "id": responses[0]["id"] if len(responses) == 1 else None,
+        # The group a single request was assigned, so a caller can refer to the
+        # phrase it just wrote without reading the whole piano roll back.
+        "group": responses[0].get("group") if len(responses) == 1 else None,
+        "group_name": responses[0].get("group_name") if len(responses) == 1 else None,
         "requests_processed": len(responses),
         "notes_added": sum(response["notes_added"] for response in responses),
         "notes_deleted": sum(response["notes_deleted"] for response in responses),
