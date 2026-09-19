@@ -12,6 +12,7 @@ from fl_studio_mcp.tools.piano_roll import register_piano_roll_tools
 from fl_studio_mcp.tools.plugins import register_plugin_tools
 from fl_studio_mcp.tools.project import register_project_tools
 from fl_studio_mcp.tools.review import register_review_tools
+from fl_studio_mcp.tools.riffs import register_riff_tools
 from fl_studio_mcp.tools.routing import register_routing_tools
 from fl_studio_mcp.tools.score import register_score_tools
 from fl_studio_mcp.tools.tempo import register_tempo_tools
@@ -34,4 +35,5 @@ __all__ = [
     "register_metering_tools",
     "register_review_tools",
     "register_journal_tools",
+    "register_riff_tools",
 ]

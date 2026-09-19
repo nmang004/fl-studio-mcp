@@ -518,6 +518,18 @@ against the wrong piano roll.
 | `fl_undo_history` | Report how deep the undo history is |
 
 
+### Riff Library
+
+| Tool | Description |
+|------|-------------|
+| `fl_save_riff` | Save the notes in the piano roll as a tagged riff |
+| `fl_find_riffs` | Search the library by name, tag, key or instrument |
+| `fl_recall_riff` | Write a stored riff into the piano roll, in this project's key |
+
+A riff is the notes exactly as the piano roll reported them, expression flags included, plus the key, meter, tempo and instrument it came from. Searching matches the name, tags, mood, instrument and key, and results carry no note lists, so an answer stays small enough to read.
+
+Recalling transposes from the key the riff was saved in to the key this project is in, taking the shorter way round so a phrase does not leap an octave to reach a neighbouring key. A riff saved without a key, or recalled into a project whose snap to scale is off, is written as it was and the reply says so rather than guessing. Notes pushed outside the MIDI range are clamped and counted, because a phrase that came back flat at the top should tell you.
+
 ### Session Journal
 
 | Tool | Description |
