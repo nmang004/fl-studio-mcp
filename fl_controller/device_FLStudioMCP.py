@@ -138,6 +138,10 @@ def execute_pending_command():
 
     except json.JSONDecodeError as e:
         response["error"] = f"Invalid JSON in command file: {e}"
+    except ValueError as e:
+        # A handler refusing bad input. The message is already written for the
+        # caller, so pass it through unwrapped.
+        response["error"] = str(e)
     except Exception as e:
         response["error"] = f"Error executing command: {e}"
 
@@ -161,7 +165,20 @@ def write_response(response: dict):
 
 
 def dispatch_command(action: str, params: dict) -> dict:
-    """Route command to appropriate handler and return result."""
+    """Route a command and return its result, reporting refusals as errors.
+
+    A handler that rejects its input raises ValueError with a message written for
+    the caller. Turning it into an error dict here means every caller, including
+    the batch runner, sees a refusal the same way it sees any other failure.
+    """
+    try:
+        return _route_command(action, params)
+    except ValueError as e:
+        return {"error": str(e)}
+
+
+def _route_command(action: str, params: dict) -> dict:
+    """Send a command to its handler. Raises ValueError for a refused call."""
 
     # System commands
     if action == "system.getInfo":
@@ -360,6 +377,21 @@ def _safe_to_edit():
         return None
 
 
+def _require(params: dict, name: str, action: str):
+    """Return a required parameter, or raise a ValueError naming it.
+
+    Every handler used to default its index to 0, and index 0 is the Master mixer
+    track or the first channel. A caller that forgot the parameter got a confident
+    answer about the wrong object, and a write edited the master track of someone's
+    project. Refusing is the only safe default.
+
+    Zero is a real index, so only absence is an error, never falsiness.
+    """
+    if name not in params or params[name] is None:
+        raise ValueError(f"{action} requires a '{name}'")
+    return params[name]
+
+
 def handle_system_ping() -> dict:
     """Answer a liveness check.
 
@@ -511,7 +543,7 @@ def handle_mixer_get_track_count() -> dict:
 
 def handle_mixer_get_track_info(params: dict) -> dict:
     """Get info about a mixer track."""
-    track = params.get("track", 0)
+    track = _require(params, "track", "mixer.getTrackInfo")
     return {
         "index": track,
         "name": mixer.getTrackName(track),
@@ -554,7 +586,7 @@ def handle_mixer_get_all_tracks(params: dict) -> dict:
 
 def handle_mixer_set_track_volume(params: dict) -> dict:
     """Set mixer track volume."""
-    track = params.get("track", 0)
+    track = _require(params, "track", "mixer.setTrackVolume")
     volume = params.get("volume", 0.8)
     mixer.setTrackVolume(track, volume)
     return {
@@ -565,7 +597,7 @@ def handle_mixer_set_track_volume(params: dict) -> dict:
 
 def handle_mixer_set_track_pan(params: dict) -> dict:
     """Set mixer track pan."""
-    track = params.get("track", 0)
+    track = _require(params, "track", "mixer.setTrackPan")
     pan = params.get("pan", 0.0)
     mixer.setTrackPan(track, pan)
     return {"pan": mixer.getTrackPan(track)}
@@ -573,7 +605,7 @@ def handle_mixer_set_track_pan(params: dict) -> dict:
 
 def handle_mixer_mute_track(params: dict) -> dict:
     """Mute/unmute mixer track."""
-    track = params.get("track", 0)
+    track = _require(params, "track", "mixer.muteTrack")
     muted = params.get("muted")  # None = toggle
 
     if muted is None:
@@ -589,7 +621,7 @@ def handle_mixer_mute_track(params: dict) -> dict:
 
 def handle_mixer_solo_track(params: dict) -> dict:
     """Solo/unsolo mixer track."""
-    track = params.get("track", 0)
+    track = _require(params, "track", "mixer.soloTrack")
     solo = params.get("solo")  # None = toggle
     mode = params.get("mode", 3)
 
@@ -616,7 +648,7 @@ def handle_mixer_arm_track(params: dict) -> dict:
 
 def handle_mixer_set_track_name(params: dict) -> dict:
     """Set mixer track name."""
-    track = params.get("track", 0)
+    track = _require(params, "track", "mixer.setTrackName")
     name = params.get("name", "")
     mixer.setTrackName(track, name)
     return {"name": name}
@@ -624,7 +656,7 @@ def handle_mixer_set_track_name(params: dict) -> dict:
 
 def handle_mixer_set_track_color(params: dict) -> dict:
     """Set mixer track color."""
-    track = params.get("track", 0)
+    track = _require(params, "track", "mixer.setTrackColor")
     r = params.get("r", 0)
     g = params.get("g", 0)
     b = params.get("b", 0)
@@ -636,7 +668,7 @@ def handle_mixer_set_track_color(params: dict) -> dict:
 
 def handle_mixer_set_stereo_sep(params: dict) -> dict:
     """Set mixer track stereo separation."""
-    track = params.get("track", 0)
+    track = _require(params, "track", "mixer.setStereoSep")
     separation = params.get("separation", 0.0)
     mixer.setTrackStereoSep(track, separation)
     return {"separation": separation}
@@ -655,7 +687,7 @@ def handle_channels_get_count(params: dict) -> dict:
 
 def handle_channels_get_info(params: dict) -> dict:
     """Get info about a channel."""
-    index = params.get("index", 0)
+    index = _require(params, "index", "channels.getInfo")
     use_global = params.get("use_global", True)
 
     return {
@@ -710,7 +742,7 @@ def handle_channels_get_selected() -> dict:
 
 def handle_channels_select(params: dict) -> dict:
     """Select/deselect a channel."""
-    index = params.get("index", 0)
+    index = _require(params, "index", "channels.select")
     select = params.get("select", True)
     channels.selectChannel(index, 1 if select else 0, True)
     return {
@@ -721,7 +753,7 @@ def handle_channels_select(params: dict) -> dict:
 
 def handle_channels_select_one(params: dict) -> dict:
     """Select only one channel, deselecting others."""
-    index = params.get("index", 0)
+    index = _require(params, "index", "channels.selectOne")
     channels.selectOneChannel(index, True)
     return {"channel_name": channels.getChannelName(index, True)}
 
@@ -738,7 +770,7 @@ def handle_channels_trigger_note(params: dict) -> dict:
 
 def handle_channels_set_volume(params: dict) -> dict:
     """Set channel volume."""
-    index = params.get("index", 0)
+    index = _require(params, "index", "channels.setVolume")
     volume = params.get("volume", 0.8)
     channels.setChannelVolume(index, volume, True)
     return {
@@ -749,7 +781,7 @@ def handle_channels_set_volume(params: dict) -> dict:
 
 def handle_channels_set_pan(params: dict) -> dict:
     """Set channel pan."""
-    index = params.get("index", 0)
+    index = _require(params, "index", "channels.setPan")
     pan = params.get("pan", 0.0)
     channels.setChannelPan(index, pan, True)
     return {
@@ -760,7 +792,7 @@ def handle_channels_set_pan(params: dict) -> dict:
 
 def handle_channels_mute(params: dict) -> dict:
     """Mute/unmute channel."""
-    index = params.get("index", 0)
+    index = _require(params, "index", "channels.mute")
     muted = params.get("muted")  # None = toggle
 
     if muted is None:
@@ -776,7 +808,7 @@ def handle_channels_mute(params: dict) -> dict:
 
 def handle_channels_solo(params: dict) -> dict:
     """Solo/unsolo channel."""
-    index = params.get("index", 0)
+    index = _require(params, "index", "channels.solo")
     solo = params.get("solo")  # None = toggle
 
     if solo is None:
@@ -792,7 +824,7 @@ def handle_channels_solo(params: dict) -> dict:
 
 def handle_channels_set_name(params: dict) -> dict:
     """Set channel name."""
-    index = params.get("index", 0)
+    index = _require(params, "index", "channels.setName")
     name = params.get("name", "")
     channels.setChannelName(index, name, True)
     return {"name": name}
@@ -800,7 +832,7 @@ def handle_channels_set_name(params: dict) -> dict:
 
 def handle_channels_set_color(params: dict) -> dict:
     """Set channel color."""
-    index = params.get("index", 0)
+    index = _require(params, "index", "channels.setColor")
     r = params.get("r", 0)
     g = params.get("g", 0)
     b = params.get("b", 0)
@@ -812,7 +844,7 @@ def handle_channels_set_color(params: dict) -> dict:
 
 def handle_channels_route_to_mixer(params: dict) -> dict:
     """Route channel to mixer track."""
-    channel_index = params.get("channel_index", 0)
+    channel_index = _require(params, "channel_index", "channels.routeToMixer")
     mixer_track = params.get("mixer_track", 0)
     channels.setTargetFxTrack(channel_index, mixer_track, True)
     return {
@@ -828,14 +860,14 @@ def handle_channels_route_to_mixer(params: dict) -> dict:
 
 def handle_channels_get_grid_bit(params: dict) -> dict:
     """Get whether a step is active."""
-    channel = params.get("channel", 0)
+    channel = _require(params, "channel", "channels.getGridBit")
     position = params.get("position", 0)
     return {"value": channels.getGridBit(channel, position, True) == 1}
 
 
 def handle_channels_set_grid_bit(params: dict) -> dict:
     """Set a step on or off."""
-    channel = params.get("channel", 0)
+    channel = _require(params, "channel", "channels.setGridBit")
     position = params.get("position", 0)
     value = params.get("value", False)
     channels.setGridBit(channel, position, 1 if value else 0, True)
@@ -847,7 +879,7 @@ def handle_channels_set_grid_bit(params: dict) -> dict:
 
 def handle_channels_get_step_sequence(params: dict) -> dict:
     """Get step sequence for a channel."""
-    channel = params.get("channel", 0)
+    channel = _require(params, "channel", "channels.getStepSequence")
     steps = params.get("steps", 16)
     sequence = []
 
@@ -859,7 +891,7 @@ def handle_channels_get_step_sequence(params: dict) -> dict:
 
 def handle_channels_set_step_sequence(params: dict) -> dict:
     """Set complete step sequence for a channel."""
-    channel = params.get("channel", 0)
+    channel = _require(params, "channel", "channels.setStepSequence")
     pattern = params.get("pattern", [])
 
     for i, value in enumerate(pattern):
@@ -960,7 +992,7 @@ def handle_plugins_get_params(params: dict) -> dict:
 def handle_plugins_get_param_value(params: dict) -> dict:
     """Get specific parameter value."""
     param_index = params.get("param_index", 0)
-    plugin_index = params.get("plugin_index", 0)
+    plugin_index = _require(params, "plugin_index", "plugins.getParamValue")
     slot_index = params.get("slot_index", -1)
     use_global = params.get("use_global", True)
 
@@ -985,7 +1017,7 @@ def handle_plugins_set_param_value(params: dict) -> dict:
     """Set plugin parameter value."""
     param_index = params.get("param_index", 0)
     value = params.get("value", 0.0)
-    plugin_index = params.get("plugin_index", 0)
+    plugin_index = _require(params, "plugin_index", "plugins.setParamValue")
     slot_index = params.get("slot_index", -1)
     use_global = params.get("use_global", True)
 
