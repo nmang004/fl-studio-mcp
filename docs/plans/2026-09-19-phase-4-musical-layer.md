@@ -691,18 +691,55 @@ git commit -m "Bridge to MIDI files so notes can leave and enter FL"
 
 ## Phase 4 exit criteria
 
-- [ ] One call writes a slide-articulated bassline in the project's real key and
-      meter into a named channel, and reads it back. Verified live, by eye.
-- [ ] Every one of the sixteen `flpianoroll.Note` properties round trips.
-- [ ] The server reads the key and meter instead of assuming C major 4/4.
-- [ ] Bars and beats work, honouring the project's time signature.
-- [ ] Chord symbols parse, and an unknown symbol is refused rather than guessed.
-- [ ] Groove transforms are pure, tested against the fake, and leave the input
-      alone.
-- [ ] A grouped phrase can be identified exactly.
-- [ ] `fl_describe_project` answers in one call rather than twenty.
-- [ ] `pytest` green and `ruff check .` clean with no FL Studio running.
-- [ ] `docs/SMOKE_TEST.md` records the live run and what could not be run.
+Checked on 2026-09-19 against the committed tree and live FL Studio 2026.
+
+- [x] One call writes a slide-articulated bassline in the project's real key and
+      meter into a named channel, and reads it back. Verified live, and confirmed by
+      eye in FL.
+- [x] Every one of the sixteen `flpianoroll.Note` properties round trips. Verified
+      live: slide, porta, fcut, fres, pitchofs, release and group all survived, and
+      FL drew its own slide and portamento markers.
+- [x] The server reads the key and meter instead of assuming C major 4/4, and says
+      so when no key is set rather than inventing one.
+- [x] Bars and beats work, honouring the project's time signature, so bar 2 in 3/4 is
+      beat 3 and not beat 4.
+- [x] Chord symbols parse, and an unknown symbol is refused rather than guessed.
+- [x] Groove transforms are pure, tested against the fake, and leave the input alone.
+- [x] A grouped phrase can be identified exactly.
+- [x] `fl_describe_project` answers in one call, and a test counts the round trips to
+      keep it that way.
+- [x] `pytest` green and `ruff check .` clean with no FL Studio running. 592 tests
+      from a clean clone.
+- [x] `docs/SMOKE_TEST.md` records the live run and what could not be run.
+
+### Seven assumptions the live environment corrected
+
+This phase produced more of these than the previous three combined, and every one was
+invisible to the test suite because the fake had been written from the same guess as
+the code.
+
+| Assumption | What FL actually does |
+| --- | --- |
+| `release` is a flag | It is a float. The property table had it in the flag list, so a release of 0.75 became True |
+| `pitchofs` is a float | It is an int in units of 10 cents, so 25 is a quarter tone and a fractional value is not valid at all |
+| `snap_scale_helper` is always twelve values | With snap to scale off it is an empty string |
+| The scale root is at index 0 | The helper is C-aligned, so A minor starts at index 9 |
+| Rotating the degree list gives offsets from the root | It gives absolute semitones in a different order, so the third entry read as 0 rather than as a minor third |
+| `getNextFreeGroupIndex` is a module function | It is a method on the score object |
+| A note with no `pan`, `fcut`, `fres` or `release` reads back as 0.0 | They read back as 0.5, because FL normalises them |
+
+Two of these were mine getting a test expectation wrong while the code was right, and
+five were the code and the fake being wrong together. The pattern is consistent
+enough to state as a rule: the fake is a model written from the same understanding as
+the code, so it cannot catch a misunderstanding. Only a live read can.
+
+### What Phase 4 got right by accident
+
+`fl_get_project_context` imported its script with a helper from the test suite, so
+the shipped code raised ModuleNotFoundError the first time it was called for real. No
+test caught it because every test provided the helper. It was found by running the
+tool outside pytest, which is a check worth doing on every tool before claiming it
+works.
 
 ## What Phase 4 deliberately does not do
 

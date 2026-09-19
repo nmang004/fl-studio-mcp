@@ -128,6 +128,22 @@ the Accessibility permission, and the real `flpianoroll`.
       is Phase 2's targeting work.
 - [ ] Confirm the tool's report matches what actually landed. Catches the reply
       being ignored, which is what the old code did.
+- [ ] Write a note with `slide` set and confirm FL draws it as a slide note rather
+      than an ordinary one. Catches the property not reaching FL, which no test can
+      see because the fake accepts anything.
+- [ ] Write a note with `porta` set and confirm FL draws the portamento marker.
+      Catches the same for the other articulation flag.
+- [ ] Write a note with `pitchofs` set to 25 and confirm the pitch is a quarter tone
+      up. Catches the units being read as semitones, which the API documents as 10
+      cents and nothing enforces.
+- [ ] `fl_get_project_context` with snap to scale switched on, and confirm the key
+      matches what the piano roll shows. Then switch it off and confirm the tool says
+      the scale is not set rather than naming C major.
+- [ ] `fl_write_bassline` into a channel and confirm the notes are on that channel,
+      are in the project's key, carry slide marks, and that one Ctrl+Z removes the
+      whole phrase. Catches a group that did not get assigned.
+- [ ] `fl_describe_project` and confirm the summary matches what is on screen, and
+      that it took one round trip rather than one per channel.
 - [ ] `fl_get_piano_roll_state` returns the notes you just wrote, with their
       velocity and pan. Catches a stale state file being returned.
 - [ ] Send notes with `slide` and `porta` set, and confirm FL shows them as slide
@@ -157,6 +173,48 @@ Both must be covered before a release. Windows needs the extra step.
 Note the date, the FL Studio version, the API version, and any item that failed,
 in the commit message or the pull request description. A smoke test with no record
 is a rumour.
+
+### 2026-09-19, Phase 4
+
+FL Studio 2026, Producer Edition v26.1.6 build 5406, API version 45, macOS 26,
+Apple silicon.
+
+Passed, against live FL Studio:
+
+- Note expression: two notes written with `slide`, `porta`, `fcut` 0.7, `fres` 0.3,
+  `pitchofs` 25, `release` 0.4 and `group` 3 all came back with those values intact,
+  and FL drew the slide marker and the portamento marker on screen. This is the
+  check the fake cannot make, because a fake accepts whatever it is given.
+- The Phase 4 done-condition: one `fl_write_bassline` call wrote a slide-articulated
+  bassline into a named channel in the project's own key and meter, and the read-back
+  confirmed it. Six notes, C2 and G2, every one carrying a slide, grouped as group 1
+  so one Ctrl+Z removes the phrase.
+- Project context: FL reported `root_note` 0, an empty `scale_helper`, 4/4 and PPQ
+  96 for the open project.
+
+Could not be run:
+
+- Windows, and Windows with a OneDrive-redirected Documents folder. No machine.
+- The MIDI file bridge against FL, because there is no tool that reads or writes a
+  MIDI file through FL; the bridge is tested against the filesystem only.
+- The automatic keystroke, still blocked by macOS Accessibility error 1002, so every
+  live piano roll run went through FL's menu.
+
+Found during this run, and since fixed:
+
+- With snap to scale switched off, `score.snap_scale_helper` returns an empty string
+  rather than twelve values. The first version treated that as malformed, which would
+  have made every project without snap to scale unusable.
+- An untouched note's `pan`, `fcut`, `fres` and `release` all read back as 0.5, not
+  0.0, so those are normalised with 0.5 as neutral.
+- `pitchofs` is an int in units of 10 cents, so the quarter tone used in an early
+  test was never a valid value.
+- A reply that carried two responses, a context read and a write, echoed the context
+  fields as null, so the caller was told the project's key was unknown when the
+  script had just answered it.
+- `get_project_context` imported a helper from the test suite, so the shipped code
+  raised ModuleNotFoundError the first time it was called for real. No test caught it
+  because every test supplied the helper.
 
 ### 2026-09-19, Phase 3
 
