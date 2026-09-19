@@ -135,6 +135,12 @@ class FakeProject:
 
         # Thousandths of a BPM. Live FL Studio returned 130000 at 130 BPM.
         self.tempo = 130000
+        # Research spike T1: whether FL honours a REC_Tempo write is unmeasured,
+        # so by default the fake records the call without moving the tempo. A
+        # test that needs the write to land sets this, which models one plausible
+        # FL rather than asserting anything about the real one. See
+        # tests/fakes/modules/general.processRECEvent.
+        self.tempo_write_works = False
         # general.getRecPPQ. Not measured yet, so this is the common default.
         self.ppq = 96
         self.is_playing = False

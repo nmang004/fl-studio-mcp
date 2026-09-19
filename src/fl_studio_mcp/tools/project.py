@@ -19,10 +19,10 @@ if TYPE_CHECKING:
     from fastmcp import FastMCP
 
 
-def get_playlist_tracks(include_unnamed: bool = False) -> dict[str, Any]:
+def get_playlist_tracks(include_all: bool = False) -> dict[str, Any]:
     """Playlist tracks with their properties."""
     return get_connection().send_command(
-        "playlist.getAll", {"include_unnamed": include_unnamed}, timeout=10.0
+        "playlist.getAll", {"include_all": include_all}, timeout=10.0
     )
 
 
@@ -107,26 +107,27 @@ def register_project_tools(mcp: FastMCP) -> None:
     """Register playlist, arrangement, UI and channel property tools."""
 
     @mcp.tool()
-    def fl_get_playlist_tracks(include_unnamed: bool = False) -> dict:
+    def fl_get_playlist_tracks(include_all: bool = False) -> dict:
         """List the playlist tracks, which are the arrangement lanes.
 
         A playlist track is not a mixer track and not a Channel Rack channel. FL
         keeps the three separate, so a playlist track called "Drums" and a mixer
         insert called "Drums" are two unrelated things that happen to share a name.
 
-        A project reports five hundred playlist tracks whether or not they are used,
-        and only the named ones mean anything, so unnamed lanes are left out by
+        FL reports hundreds of playlist lanes whether or not they are used, every
+        one of them carrying a generated name like "Track 12". A lane the user
+        renamed is the one that means something, so only those are reported by
         default.
 
         Args:
-            include_unnamed: Also report lanes with no name, which is 499 of the
-                             500 on a typical project.
+            include_all: Also report the empty generated lanes.
 
         Returns:
             tracks: each with its index, name, colour, and mute and solo state
             total_tracks: how many lanes FL reports in total
+            unnamed_lanes: how many were left out
         """
-        return get_playlist_tracks(include_unnamed)
+        return get_playlist_tracks(include_all)
 
     @mcp.tool()
     def fl_set_playlist_track(

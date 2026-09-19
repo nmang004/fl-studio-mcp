@@ -8,6 +8,7 @@ from __future__ import annotations
 
 from types import ModuleType
 
+from tests.fakes.modules.midi import REC_Tempo, REC_UpdateValue
 from tests.fakes.project import FakeProject
 
 # From the stubs: the flags general.saveUndo accepts.
@@ -82,12 +83,27 @@ def build(project: FakeProject) -> ModuleType:
         return project.metronome
 
     def processRECEvent(eventId: int, value: int, flags: int) -> None:
-        """Recording events. Modelled only far enough to be observable.
+        """Recording events, modelled only far enough to be observable.
 
-        Writing tempo is research spike T1 and its flags are unverified, so this
-        records the call rather than pretending to change the tempo.
+        Writing tempo is research spike T1, and whether FL honours a REC_Tempo
+        write is unmeasured, so the fake does not decide it. Every call is
+        recorded, and the tempo moves only when a test turns on
+        `project.tempo_write_works`, which models a plausible FL: the value is
+        stored when REC_UpdateValue is among the flags and ignored otherwise.
+
+        This is a model of one possible FL Studio, not evidence about the real
+        one. A test that drives the probe through this fake checks the probe's
+        arithmetic and its reporting. It says nothing about whether a tempo write
+        works in FL Studio, and nothing here may be cited as if it did.
         """
         project.rec_events.append((eventId, value, flags))
+        if not project.tempo_write_works:
+            return
+        if eventId != REC_Tempo:
+            return
+        if not flags & REC_UpdateValue:
+            return
+        project.tempo = value
 
     module.getVersion = getVersion
     module.safeToEdit = safeToEdit

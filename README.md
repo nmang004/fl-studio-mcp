@@ -22,6 +22,7 @@ https://github.com/user-attachments/assets/c2b1a5e7-1640-41fa-82bc-18ca7cbae9e8
 - Get song length and position
 - Control loop mode (pattern/song)
 - Adjust playback speed
+- Read the project tempo, which FL reports in thousandths of a BPM, so a 130 BPM project reads 130000 (`fl_get_version`)
 
 ### Mixer Control
 
@@ -30,6 +31,7 @@ https://github.com/user-attachments/assets/c2b1a5e7-1640-41fa-82bc-18ca7cbae9e8
 - Arm tracks for recording
 - Set track names and colors
 - Stereo separation control
+- Read and write every EQ band of a track in one call
 
 ### Channel Rack Control
 
@@ -40,6 +42,12 @@ https://github.com/user-attachments/assets/c2b1a5e7-1640-41fa-82bc-18ca7cbae9e8
 - Trigger MIDI notes in real-time
 - Step sequencer control (get/set grid bits)
 
+### Pattern Control
+
+- List every pattern with its name, color, length and whether it is current
+- Rename, recolor, select or clone a pattern
+- Create a new empty pattern and make it current
+
 ### Plugin Control
 
 - List plugin parameters
@@ -49,26 +57,35 @@ https://github.com/user-attachments/assets/c2b1a5e7-1640-41fa-82bc-18ca7cbae9e8
 
 ### Piano Roll Control
 
-- **Add notes** to the piano roll with precise timing
+- **Add notes** to a named channel's piano roll with precise timing
 - **Add chords** with a single command
 - **Delete specific notes** by MIDI number and time
 - **Clear all notes** from the piano roll
-- **Read piano roll state** to see all existing notes
+- **Read piano roll state** to see all existing notes, refreshed from FL Studio
+- **Verify a write** by reading the notes back, rather than trusting the script's own report
 - Auto-triggering via keystroke (Cmd+Opt+Y on macOS, Ctrl+Alt+Y on Windows)
 
-## Important Limitations
+### Undo and Batching
+
+- Run several commands as one edit, stopping at the first failure
+- Undo one or more steps
+- Check how deep the undo history is before or after an edit
+
+## Limitations And Corrections
 
 ### Cannot Load Plugins
 
 The FL Studio scripting API does **not** support loading new VST/AU plugins. You can only control parameters of plugins that are already loaded in your project.
 
-### Cannot Create Patterns
+### Patterns Can Be Created
 
-There is no function that creates a pattern outright, but
-`patterns.findFirstNextEmptyPat()` exists in the scripting API and selects the
-next empty pattern slot. Writing into that slot is pattern creation in practice,
-so this is a missing tool rather than a missing capability. Phase 3 of
-`ROADMAP.md` covers adding it.
+There is no single API function that creates a pattern outright.
+`patterns.findFirstNextEmptyPat()` exists in FL's official scripting API stubs,
+and selecting the next empty pattern slot and writing into it is pattern creation
+in practice. The claim this README used to make, that patterns cannot be created,
+was overstated. The server now has `fl_create_pattern`, which selects the next
+empty pattern, reuses it when it is already empty, and makes it current so the
+next write lands where you meant it to.
 
 ### Cannot Place Clips In The Playlist
 
@@ -76,6 +93,29 @@ The `playlist` module has no add, insert or create function. Markers and live
 clips in performance mode are the ceiling, so building a full arrangement
 programmatically is out. Confirmed against the stubs, and enforced by a test that
 fails if the fake `playlist` module ever grows such a function.
+
+The parts of the playlist that do exist are covered: `fl_get_playlist_tracks`,
+`fl_set_playlist_track`, `fl_get_markers` and `fl_add_marker` handle track names,
+mute and solo state, and arrangement markers.
+
+### Tempo Is Readable, Writing It Is Not Solved
+
+`mixer.getCurrentTempo()` reads the project tempo, and it returns thousandths of
+a BPM: measured live, a 130 BPM project reports 130000.
+
+Writing tempo is still under investigation. There is no dedicated tempo setter in
+the API. `general.processRECEvent` with `midi.REC_Tempo` is the only path, and
+that function's own stub advises trying other API functions first, because that
+part of the API is incomplete, poorly documented and full of hidden bugs. There
+is no tempo write tool yet, and this README does not claim one.
+
+### The API Stubs Are Incomplete
+
+FL's official scripting API stubs contain entries marked "HELP WANTED" and
+parameters documented as "???", so a function existing is not proof that it
+works. Where the server can read a value from FL Studio rather than assume it, it
+does: the EQ band count is read from `mixer.getEqBandCount()` instead of being
+hardcoded, and live FL Studio 2026 reports three bands for an insert.
 
 ## Requirements
 
@@ -160,7 +200,9 @@ pip install -e .
 
 Nothing to do. The server creates its own virtual MIDI port named **FL Studio
 MCP** when it starts, and FL Studio sees it as an ordinary MIDI input. The IAC
-Driver is no longer needed, and the server will not use it unless you ask it to.
+Driver is not needed and nothing here asks you to enable it. If an IAC port is
+already present, the server will use it rather than create a second port;
+otherwise it creates its own.
 
 A virtual port exists only while the process that created it is running, and only
 that process can send to it. That is why the server owns the port rather than
@@ -262,6 +304,7 @@ fl-studio-mcp
 |------|-------------|
 | `fl_connect` | Connect/reconnect to FL Studio |
 | `fl_connection_status` | Get connection status |
+| `fl_get_version` | Report the FL Studio version, the scripting API version and the project tempo |
 
 ### Transport
 
@@ -292,6 +335,13 @@ fl-studio-mcp
 | `fl_set_track_color` | Set track color |
 | `fl_set_stereo_separation` | Adjust stereo width |
 
+### Mixer EQ
+
+| Tool | Description |
+|------|-------------|
+| `fl_get_eq` | Read every EQ band of a mixer track at once |
+| `fl_set_eq` | Set several EQ bands and report the result read back |
+
 ### Channels
 
 | Tool | Description |
@@ -315,6 +365,14 @@ fl-studio-mcp
 | `fl_get_step_sequence` | Get full pattern |
 | `fl_set_step_sequence` | Set full pattern |
 
+### Patterns
+
+| Tool | Description |
+|------|-------------|
+| `fl_get_patterns` | List every pattern with its name, color, length and which one is current |
+| `fl_set_pattern` | Rename, recolor, select or clone a pattern |
+| `fl_create_pattern` | Make a new empty pattern current |
+
 ### Plugins
 
 | Tool | Description |
@@ -332,16 +390,28 @@ fl-studio-mcp
 
 ### Piano Roll
 
+Every piano roll tool that reads or writes notes takes a `channel` argument. The
+piano roll window shows whichever channel is selected in the Channel Rack, so
+without naming a channel the notes land wherever focus happens to be. When
+targeting a channel fails, the tool refuses rather than running the script
+against the wrong piano roll.
+
 | Tool | Description |
 |------|-------------|
-| `fl_send_notes` | Add notes to the piano roll |
-| `fl_send_chord` | Add a chord (multiple notes at same time) |
+| `fl_send_notes` | Write notes into a named channel's piano roll, optionally verifying them by read-back |
+| `fl_send_chord` | Write a chord into a named channel's piano roll |
 | `fl_delete_notes` | Delete specific notes |
 | `fl_clear_piano_roll` | Clear all notes |
-| `fl_get_piano_roll_state` | Read current piano roll notes |
-| `fl_trigger_script` | Manually trigger the FL Studio script |
-| `fl_get_piano_roll_info` | Get piano roll system info |
-| `fl_clear_request_queue` | Cancel pending queued changes |
+| `fl_get_piano_roll_state` | Read the notes currently in a piano roll |
+| `fl_get_piano_roll_info` | Report the piano roll integration status |
+
+### Undo and Batching
+
+| Tool | Description |
+|------|-------------|
+| `fl_batch` | Run several commands as one edit that stops at the first failure |
+| `fl_undo` | Undo one or more steps |
+| `fl_undo_history` | Report how deep the undo history is |
 
 ## Example Workflows
 
@@ -438,7 +508,7 @@ This MCP server uses a hybrid approach:
 
 ### How It Works
 
-1. **Transport/Mixer/Channels/Plugins**:
+1. **Transport, Mixer (including EQ), Channels, Patterns, Plugins, batch and undo**:
    - MCP server writes command to JSON file
    - Sends MIDI trigger note to FL Studio
    - FL Studio controller script reads JSON, executes API, writes response
@@ -489,8 +559,11 @@ fl-studio-mcp/
 ├── src/fl_studio_mcp/
 │   ├── server.py                # FastMCP server entry point
 │   ├── tools/                   # MCP tool implementations
+│   │   ├── batch.py
 │   │   ├── channels.py
+│   │   ├── eq.py
 │   │   ├── mixer.py
+│   │   ├── patterns.py
 │   │   ├── piano_roll.py
 │   │   ├── plugins.py
 │   │   └── transport.py

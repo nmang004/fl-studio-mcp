@@ -1070,6 +1070,23 @@ WINDOW_NAMES = {
 }
 
 
+def _is_placeholder_track_name(name: str, index: int) -> bool:
+    """Whether a playlist track still carries the name FL generated for it.
+
+    Measured on live FL Studio 2026: a project reports 500 playlist tracks, and
+    every one of them has a name. 498 are the generated "Track <n>" pattern and
+    index 0 reads None. So a name being present says nothing about whether the
+    track is in use, and reporting five hundred lanes is worse than useless.
+
+    A lane the user renamed is the signal that they care about it, so that is what
+    distinguishes a real track here. A user who genuinely wants a lane called
+    "Track 5" can ask for all of them.
+    """
+    if not name:
+        return True
+    return name.strip() == "Track %d" % index
+
+
 def handle_playlist_get_all(params: dict) -> dict:
     """Playlist tracks with their properties.
 
@@ -1077,12 +1094,12 @@ def handle_playlist_get_all(params: dict) -> dict:
     a Channel Rack channel, and FL keeps the three separate: renaming one does not
     rename another. Conflating them is the mistake a generic DAW tool makes.
 
-    Measured on live FL Studio 2026: the project reports 500 playlist tracks and
-    exactly one of them has a name. Returning all five hundred is noise, so innamed
-    lanes are skipped unless the caller asks for them.
+    Only lanes the user has named are reported by default, because FL reports
+    hundreds of empty ones with generated names and those carry no information.
     """
-    include_unnamed = bool(params.get("include_unnamed", False))
+    include_all = bool(params.get("include_all", False))
     tracks = []
+    placeholders = 0
     for index in range(playlist.trackCount()):
         entry = {"index": index}
         for key, reader in (
@@ -1096,15 +1113,16 @@ def handle_playlist_get_all(params: dict) -> dict:
             except Exception:
                 entry[key] = None
 
-        named = bool(entry.get("name"))
-        if not named and not include_unnamed:
-            continue
+        if _is_placeholder_track_name(entry.get("name") or "", index):
+            placeholders += 1
+            if not include_all:
+                continue
         tracks.append(entry)
 
     return {
         "tracks": tracks,
         "total_tracks": playlist.trackCount(),
-        "named_tracks": len(tracks) if not include_unnamed else None,
+        "unnamed_lanes": placeholders,
     }
 
 
