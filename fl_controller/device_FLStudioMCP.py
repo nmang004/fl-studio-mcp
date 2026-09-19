@@ -242,6 +242,8 @@ def _route_command(action: str, params: dict) -> dict:
         return handle_mixer_set_routing(params)
     elif action == "mixer.getLevels":
         return handle_mixer_get_levels(params)
+    elif action == "mixer.getSnapshot":
+        return handle_mixer_get_snapshot(params)
 
     # EQ commands
     elif action == "mixer.getEq":
@@ -1435,6 +1437,58 @@ def handle_mixer_set_routing(params: dict) -> dict:
                 mixer.setRouteToLevel(track, destination, float(entry["level"]))
 
     return _routing_snapshot(track)
+
+
+def _mixer_snapshot_entry(track: int) -> dict:
+    """One mixer track's settings, with each read guarded.
+
+    A single unreadable property must not lose the whole mixer, because a review is
+    more useful with five fields than with none.
+    """
+    entry = {"index": track}
+    for key, reader in (
+        ("name", lambda: mixer.getTrackName(track)),
+        ("volume", lambda: mixer.getTrackVolume(track)),
+        ("volume_db", lambda: mixer.getTrackVolume(track, 1)),
+        ("pan", lambda: mixer.getTrackPan(track)),
+        ("stereo_separation", lambda: mixer.getTrackStereoSep(track)),
+        ("is_muted", lambda: bool(mixer.isTrackMuted(track))),
+        ("is_solo", lambda: bool(mixer.isTrackSolo(track))),
+        ("is_armed", lambda: bool(mixer.isTrackArmed(track))),
+        ("color", lambda: mixer.getTrackColor(track) & 0xFFFFFF),
+    ):
+        try:
+            entry[key] = reader()
+        except Exception:
+            entry[key] = None
+
+    sends = []
+    for candidate in range(mixer.trackCount()):
+        if candidate == track:
+            continue
+        try:
+            if mixer.getRouteSendActive(track, candidate):
+                sends.append(candidate)
+        except Exception:
+            continue
+    entry["sends"] = sends
+    return entry
+
+
+def handle_mixer_get_snapshot(params: dict) -> dict:
+    """Every mixer track's settings, in one round trip.
+
+    A mix review needs all of this at once. Asking per track would be one round trip
+    per track, which is the pattern the project description already removed for the
+    same reason.
+
+    Read only: it changes nothing, so it works even when FL is not safe to edit.
+    """
+    count = mixer.trackCount()
+    return {
+        "tracks": [_mixer_snapshot_entry(index) for index in range(count)],
+        "track_count": count,
+    }
 
 
 def handle_mixer_get_levels(params: dict) -> dict:
