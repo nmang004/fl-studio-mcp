@@ -44,7 +44,7 @@ if ! command -v uv &> /dev/null; then
 fi
 echo -e "${GREEN}✓${NC} uv is installed"
 
-# Step 2: Install Python dependencies (3.12 — matches PyPI wheels for python-rtmidi on Windows)
+# Step 2: Install Python dependencies (3.12, which matches PyPI wheels for python-rtmidi on Windows)
 echo ""
 echo -e "${YELLOW}[2/5]${NC} Installing Python dependencies (Python 3.12)..."
 uv python install 3.12

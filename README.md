@@ -76,9 +76,9 @@ There is no API to programmatically create new patterns. You can only work with 
 
 ## Which AI Clients Work With This?
 
-This is a standard [MCP](https://modelcontextprotocol.io) server that talks to clients over stdio — it isn't hardcoded to any one AI vendor. In principle, **any MCP-compatible client can connect**: Claude Desktop, Claude Code, Cursor, Windsurf, Gemini CLI/Gemini's MCP support, OpenAI's Codex CLI/Agents SDK MCP support, etc.
+This is a standard [MCP](https://modelcontextprotocol.io) server that talks to clients over stdio, and it isn't hardcoded to any one AI vendor. In principle, **any MCP-compatible client can connect**: Claude Desktop, Claude Code, Cursor, Windsurf, Gemini CLI/Gemini's MCP support, OpenAI's Codex CLI/Agents SDK MCP support, etc.
 
-**What's actually tested and auto-configured:** only **Claude Desktop** and **Claude Code**, via `scripts/install_mcp_for_claude.sh` (macOS/Linux) and `scripts/install_mcp_for_claude.ps1` (Windows). Other clients (Gemini, OpenAI-based tools, etc.) are not tested against this server and have no installer support — you'd need to manually add an equivalent MCP server entry to that client's own config, pointing at:
+**What's actually tested and auto-configured:** only **Claude Desktop** and **Claude Code**, via `scripts/install_mcp_for_claude.sh` (macOS/Linux) and `scripts/install_mcp_for_claude.ps1` (Windows). Other clients (Gemini, OpenAI-based tools, etc.) are not tested against this server and have no installer support; you'd need to manually add an equivalent MCP server entry to that client's own config, pointing at:
 
 ```json
 {
@@ -87,7 +87,7 @@ This is a standard [MCP](https://modelcontextprotocol.io) server that talks to c
 }
 ```
 
-(adjust `/path/to/fl-studio-mcp` to your local clone). If you try this with a non-Claude client, please open an issue with what worked/didn't — the protocol should support it, but it hasn't been verified here.
+(adjust `/path/to/fl-studio-mcp` to your local clone). If you try this with a non-Claude client, please open an issue with what worked/didn't. The protocol should support it, but it hasn't been verified here.
 
 ## Quick Installation
 
@@ -118,7 +118,7 @@ Set-ExecutionPolicy -Scope CurrentUser RemoteSigned -Force
 .\install.ps1
 ```
 
-`install.ps1` is the Windows counterpart to `install.sh` — same steps, PowerShell instead of bash, and it installs Python 3.12 specifically (required for prebuilt `python-rtmidi` wheels on Windows).
+`install.ps1` is the Windows counterpart to `install.sh`: same steps, PowerShell instead of bash, and it installs Python 3.12 specifically (required for prebuilt `python-rtmidi` wheels on Windows).
 
 Both installers will:
 
@@ -211,7 +211,7 @@ Add to your Claude Desktop config:
 
 Or for Claude Code, add to your MCP settings (`~/.claude.json`, or run `claude mcp add`).
 
-Using a different MCP-compatible client (Gemini, an OpenAI-based tool, Cursor, etc.)? The same `command`/`args` pair above is all any MCP host needs — add it to that client's own MCP config in whatever format it expects. See [Which AI Clients Work With This?](#which-ai-clients-work-with-this) for what's actually been tested.
+Using a different MCP-compatible client (Gemini, an OpenAI-based tool, Cursor, etc.)? The same `command`/`args` pair above is all any MCP host needs. Add it to that client's own MCP config in whatever format it expects. See [Which AI Clients Work With This?](#which-ai-clients-work-with-this) for what's actually been tested.
 
 ## Usage
 
@@ -373,9 +373,9 @@ fl-studio-mcp
 
 1. First time: manually run **Tools > Scripting > ComposeWithLLM** in FL Studio
 2. On macOS: grant Accessibility permissions when prompted
-3. On Windows: the MCP server foregrounds the FL Studio window automatically before sending the hotkey — if FL Studio isn't running or is minimized to the system tray, the trigger can't find it and will fall back to a warning telling you to press the hotkey manually
+3. On Windows: the MCP server foregrounds the FL Studio window automatically before sending the hotkey. If FL Studio isn't running or is minimized to the system tray, the trigger can't find it and will fall back to a warning telling you to press the hotkey manually
 4. Try pressing Cmd+Opt+Y (macOS) or Ctrl+Alt+Y (Windows) manually to confirm the hotkey itself is bound to the script in FL Studio
-5. If you just updated the server code (e.g. pulled a fix to the trigger logic), **fully restart** your MCP client (Claude Desktop/Code) — reconnecting the MCP server alone does not respawn the underlying process, so it can keep running stale code
+5. If you just updated the server code (e.g. pulled a fix to the trigger logic), **fully restart** your MCP client (Claude Desktop/Code); reconnecting the MCP server alone does not respawn the underlying process, so it can keep running stale code
 
 ### No MIDI ports available
 
@@ -418,7 +418,7 @@ This MCP server uses a hybrid approach:
 
 2. **Piano Roll**:
    - MCP server writes note requests to JSON file
-   - Sends keystroke (Cmd+Opt+Y on macOS, Ctrl+Alt+Y on Windows) to trigger FL Studio script — on Windows, the FL Studio window is foregrounded first so the keystroke actually reaches it
+   - Sends keystroke (Cmd+Opt+Y on macOS, Ctrl+Alt+Y on Windows) to trigger FL Studio script. On Windows, the FL Studio window is foregrounded first so the keystroke actually reaches it
    - Piano Roll script reads JSON and modifies notes
 
 ## Development

@@ -42,7 +42,7 @@ if (-not (Get-Command uv -ErrorAction SilentlyContinue)) {
 }
 Write-Color "[OK] uv is installed" "Green"
 
-# Step 2: Install Python dependencies (3.12 — matches PyPI wheels for python-rtmidi on Windows)
+# Step 2: Install Python dependencies (3.12, which matches PyPI wheels for python-rtmidi on Windows)
 Write-Host ""
 Write-Color "[2/5] Installing Python dependencies (Python 3.12)..." "Yellow"
 & uv python install 3.12
