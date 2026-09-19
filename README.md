@@ -536,6 +536,16 @@ A riff is the notes exactly as the piano roll reported them, expression flags in
 
 Recalling transposes from the key the riff was saved in to the key this project is in, taking the shorter way round so a phrase does not leap an octave to reach a neighbouring key. A riff saved without a key, or recalled into a project whose snap to scale is off, is written as it was and the reply says so rather than guessing. Notes pushed outside the MIDI range are clamped and counted, because a phrase that came back flat at the top should tell you.
 
+### Sample Search
+
+| Tool | Description |
+|------|-------------|
+| `fl_find_samples` | Search the sample folders on this machine by name, format and duration |
+
+FL's scripting API cannot search or drive its browser, so the search happens on disk and the folders are discovered rather than assumed: the FL factory packs inside the application bundle (found by glob, so a new release year does not break it), Apple Loops, Logic, GarageBand, and your own FL data folders. `FL_STUDIO_MCP_SAMPLE_DIRS` overrides the list.
+
+**A `.wav` extension is not evidence of anything.** FL's own factory wavs are Ogg Vorbis inside a RIFF container, so the reader looks at the header and reports a duration only for the formats it can actually measure: PCM and IEEE float RIFF, AIFF, FLAC and Ogg. WavPack, CAF and MP3 are listed with their format named and their duration left blank, because a wrong duration is worse than an empty one.
+
 ### Session Journal
 
 | Tool | Description |

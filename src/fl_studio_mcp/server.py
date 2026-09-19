@@ -40,6 +40,7 @@ from fl_studio_mcp.tools import (
     register_review_tools,
     register_riff_tools,
     register_routing_tools,
+    register_sample_tools,
     register_score_tools,
     register_tempo_tools,
     register_transport_tools,
@@ -211,6 +212,7 @@ register_metering_tools(mcp)
 register_review_tools(mcp)
 register_journal_tools(mcp)
 register_riff_tools(mcp)
+register_sample_tools(mcp)
 
 
 def main():
