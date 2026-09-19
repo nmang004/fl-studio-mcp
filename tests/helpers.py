@@ -19,7 +19,22 @@ PYSCRIPT_PATH = REPO_ROOT / "scripts" / "ComposeWithLLM.pyscript"
 CONTROLLER_MODULE_NAME = "fl_controller_under_test"
 PYSCRIPT_MODULE_NAME = "fl_pyscript_under_test"
 
-# Modules the controller script imports, per ROADMAP.md's sandbox rules.
+# Modules the controller script may use, per ROADMAP.md's sandbox rules.
+CONTROLLER_MODULES = (
+    "arrangement",
+    "channels",
+    "device",
+    "general",
+    "midi",
+    "mixer",
+    "patterns",
+    "playlist",
+    "plugins",
+    "transport",
+    "ui",
+)
+
+# The subset the controller imports today. The rest are for later phases.
 CONTROLLER_IMPORTS = (
     "channels",
     "device",
