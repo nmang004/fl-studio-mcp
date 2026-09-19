@@ -26,6 +26,7 @@ import uuid
 from pathlib import Path
 from typing import TYPE_CHECKING
 
+from fl_studio_mcp.utils.connection import get_connection
 from fl_studio_mcp.utils.fl_trigger import get_trigger, trigger_fl_studio
 from fl_studio_mcp.utils.paths import piano_roll_scripts_dir
 
@@ -80,10 +81,27 @@ def _read_reply(response_file: Path) -> dict | None:
     return parsed
 
 
+def target(channel: int) -> dict:
+    """Select a channel and open its piano roll, so writes land somewhere known.
+
+    Args:
+        channel: Global channel index in the Channel Rack.
+
+    Returns:
+        The controller's reply, with "targeted", "selected", "channel_name" and
+        "piano_roll_visible", or an "error". A caller must not trigger the piano
+        roll script unless this succeeded and "selected" matches "targeted".
+    """
+    return get_connection().send_command(
+        "channels.selectPianoRoll", {"index": channel}, timeout=5.0
+    )
+
+
 def send_request(
     request: dict,
     timeout: float = RESPONSE_TIMEOUT,
     wait_for_manual_trigger: float = 0.0,
+    channel: int | None = None,
 ) -> dict:
     """Send one request to the piano roll script and return its reply.
 
@@ -100,6 +118,10 @@ def send_request(
             pressing the hotkey by hand still runs it. This turns a hard failure
             into a slower success, which matters on a machine where the
             Accessibility permission has not been granted.
+        channel: Channel Rack index to write into. When given, the channel is
+            selected and its piano roll opened first, and the script is not
+            triggered unless FL confirms the selection. Without it, the notes go
+            to whichever piano roll has focus, which is why the reply says so.
 
     Returns:
         The script's reply, or a dict with "success": False and a specific
@@ -111,6 +133,37 @@ def send_request(
 
     request = dict(request)
     request.setdefault("id", uuid.uuid4().hex)
+
+    # Aim before writing anything. A trigger without a confirmed target would run
+    # the script against whichever piano roll happens to be focused.
+    target_info: dict = {}
+    if channel is not None:
+        targeted = target(channel)
+        if "error" in targeted:
+            return {
+                "success": False,
+                "error": (
+                    f"Could not target channel {channel}, so the piano roll script "
+                    f"was not triggered: {targeted['error']}"
+                ),
+            }
+        if targeted.get("selected") != channel:
+            return {
+                "success": False,
+                "error": (
+                    f"Asked FL Studio to select channel {channel} but it reports "
+                    f"channel {targeted.get('selected')} selected, so the piano roll "
+                    "script was not triggered. Running it now would edit the wrong "
+                    "piano roll."
+                ),
+            }
+        target_info = {
+            "target_channel": channel,
+            "target_channel_name": targeted.get("channel_name"),
+        }
+        # Recorded in the file too, so a request waiting for a manual trigger says
+        # where it was meant to go rather than only where it will actually land.
+        request["channel"] = channel
 
     # A reply left over from an earlier call must not be read as this one's.
     if response_file.exists():
@@ -139,7 +192,7 @@ def send_request(
     while time.time() < deadline:
         reply = _read_reply(response_file)
         if reply is not None and reply.get("id") in (None, request["id"]):
-            return reply
+            return {**reply, **target_info}
         time.sleep(POLL_INTERVAL)
 
     if trigger_error:
@@ -173,13 +226,15 @@ def read_state() -> dict | None:
         return None
 
 
-def refresh_and_read_state(timeout: float = RESPONSE_TIMEOUT) -> dict:
+def refresh_and_read_state(
+    timeout: float = RESPONSE_TIMEOUT, channel: int | None = None
+) -> dict:
     """Trigger the script, then read the state it exports.
 
     Reading without triggering returned whatever the last run happened to leave
     behind, which could be minutes or days old.
     """
-    reply = send_request({"action": "get_state"}, timeout=timeout)
+    reply = send_request({"action": "get_state"}, timeout=timeout, channel=channel)
     state = read_state()
     if state is None:
         reason = reply.get("error") or "the script did not export any state"
@@ -187,6 +242,9 @@ def refresh_and_read_state(timeout: float = RESPONSE_TIMEOUT) -> dict:
     for note in state.get("notes", []):
         if "midi" in note:
             note["note_name"] = _midi_to_note_name(note["midi"])
+    if channel is not None:
+        state["target_channel"] = channel
+        state["target_channel_name"] = reply.get("target_channel_name")
     return state
 
 
@@ -207,6 +265,7 @@ def register_piano_roll_tools(mcp: FastMCP) -> None:
     @mcp.tool()
     def fl_send_notes(
         notes: list[dict],
+        channel: int | None = None,
         mode: str = "add",
     ) -> str:
         """Add or replace notes in the FL Studio piano roll.
@@ -228,6 +287,10 @@ def register_piano_roll_tools(mcp: FastMCP) -> None:
                    - pan (float, optional): Per-note pan, -1.0 to 1.0
                    - group (int, optional): Note group, for removing a phrase later
             mode: "add" to add notes, "replace" to clear existing notes first
+            channel: Channel Rack index to write into. Give this: the piano roll
+                     window shows whichever channel is selected, so without it the
+                     notes land in whichever piano roll happens to have focus. The
+                     reply names the channel that was targeted.
 
         Reports what actually landed, read back from FL Studio, or a specific
         failure. It does not report success it has not confirmed.
@@ -251,13 +314,14 @@ def register_piano_roll_tools(mcp: FastMCP) -> None:
             note.setdefault("velocity", 0.8)
 
         if mode == "replace":
-            cleared = send_request({"action": "clear"})
+            cleared = send_request({"action": "clear"}, channel=channel)
             if not cleared.get("success"):
                 return f"Failed to clear the piano roll: {cleared.get('error')}"
 
         result = send_request(
             {"action": "add_notes", "notes": notes},
             wait_for_manual_trigger=RESPONSE_TIMEOUT,
+            channel=channel,
         )
         if not result.get("success"):
             return f"Notes did not land: {result.get('error')}"
@@ -276,6 +340,7 @@ def register_piano_roll_tools(mcp: FastMCP) -> None:
         time: float = 0,
         duration: float = 1.0,
         velocity: float = 0.8,
+        channel: int | None = None,
     ) -> str:
         """Add a chord (multiple simultaneous notes) to the FL Studio piano roll.
 
@@ -284,6 +349,10 @@ def register_piano_roll_tools(mcp: FastMCP) -> None:
             time: Start position in quarter notes (default 0)
             duration: Length in quarter notes for all notes (default 1.0)
             velocity: Velocity 0.0-1.0 for all notes (default 0.8)
+            channel: Channel Rack index to write into. Give this: the piano roll
+                     window shows whichever channel is selected, so without it the
+                     notes land in whichever piano roll happens to have focus. The
+                     reply names the channel that was targeted.
 
         Example:
             fl_send_chord([60, 64, 67], time=0, duration=1.0)
@@ -299,6 +368,7 @@ def register_piano_roll_tools(mcp: FastMCP) -> None:
                 "notes": [{"midi": midi, "velocity": velocity} for midi in midi_notes],
             },
             wait_for_manual_trigger=RESPONSE_TIMEOUT,
+            channel=channel,
         )
         if not result.get("success"):
             return f"Chord did not land: {result.get('error')}"
@@ -310,13 +380,17 @@ def register_piano_roll_tools(mcp: FastMCP) -> None:
         )
 
     @mcp.tool()
-    def fl_delete_notes(notes: list[dict]) -> str:
+    def fl_delete_notes(notes: list[dict], channel: int | None = None) -> str:
         """Delete specific notes from the FL Studio piano roll.
 
         Args:
             notes: List of notes to delete, matching on midi and time:
                    - midi (int): MIDI note number
                    - time (float): Start position in quarter notes
+            channel: Channel Rack index to write into. Give this: the piano roll
+                     window shows whichever channel is selected, so without it the
+                     notes land in whichever piano roll happens to have focus. The
+                     reply names the channel that was targeted.
 
         Example:
             [{"midi": 60, "time": 0}, {"midi": 64, "time": 0}]
@@ -327,6 +401,7 @@ def register_piano_roll_tools(mcp: FastMCP) -> None:
         result = send_request(
             {"action": "delete_notes", "notes": notes},
             wait_for_manual_trigger=RESPONSE_TIMEOUT,
+            channel=channel,
         )
         if not result.get("success"):
             return f"Deletion failed: {result.get('error')}"
@@ -340,30 +415,43 @@ def register_piano_roll_tools(mcp: FastMCP) -> None:
         return f"Deleted {deleted} note(s).{_trigger_note()}"
 
     @mcp.tool()
-    def fl_clear_piano_roll() -> str:
+    def fl_clear_piano_roll(channel: int | None = None) -> str:
         """Clear all notes from the FL Studio piano roll.
 
         Args:
+            channel: Channel Rack index whose piano roll to clear. Give this: the
+                     piano roll window shows whichever channel is selected, so
+                     without it the wrong piano roll may be cleared.
         """
-        result = send_request({"action": "clear"}, wait_for_manual_trigger=RESPONSE_TIMEOUT)
+        result = send_request(
+            {"action": "clear"},
+            wait_for_manual_trigger=RESPONSE_TIMEOUT,
+            channel=channel,
+        )
         if not result.get("success"):
             return f"Could not clear the piano roll: {result.get('error')}"
         return f"Cleared {result.get('notes_deleted', 0)} note(s).{_trigger_note()}"
 
     @mcp.tool()
-    def fl_get_piano_roll_state() -> dict:
+    def fl_get_piano_roll_state(channel: int | None = None) -> dict:
         """Get the notes currently in the FL Studio piano roll, refreshed.
 
         Triggers FL Studio to export the current state before reading it, so the
         result describes the piano roll now rather than whatever the last run
         happened to leave behind.
 
+        Args:
+            channel: Channel Rack index whose piano roll to read. Give this: the
+                     piano roll window shows whichever channel is selected, so
+                     without it the state read is whichever piano roll has focus.
+
         Returns:
             ppq: Pulses per quarter note, which is ticks per beat
             noteCount: How many notes the piano roll holds
             notes: Every note, with all sixteen flpianoroll properties
+            target_channel: The channel that was targeted, when one was given
         """
-        return refresh_and_read_state()
+        return refresh_and_read_state(channel=channel)
 
     @mcp.tool()
     def fl_get_piano_roll_info() -> dict:
