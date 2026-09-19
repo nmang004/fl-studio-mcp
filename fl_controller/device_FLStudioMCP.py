@@ -2416,13 +2416,51 @@ def handle_patterns_create_empty(params: dict) -> dict:
     that patterns cannot be created is overstated: selecting the next empty slot
     and writing into it is creation in practice.
 
+    Two documented facts about that function were wrong here until they froze a live
+    session on 2026-09-19:
+
+        Its first argument is a flags word, and flags 0 means "find first AND prompt
+        the user for a pattern name". That prompt is modal. On FL Studio 2026 build
+        5406 the call never returned, the window showed a spinning wait cursor, and
+        every later command timed out because FL stopped processing MIDI. The flag
+        that makes the call silent is midi.FFNEP_DontPromptName, from
+        midi/__ffnep_flags.py.
+
+        It returns None, as patterns/__properties.py:189 declares. The old code
+        compared that None with patternCount, which raises TypeError in Python 3.
+
+    The index therefore comes from the selection the call makes, read back with
+    patternNumber, which is the same accessor the pattern reader already uses.
+
     Only a genuinely new slot is named. A pattern that exists but holds no notes
     is still the next empty one, so calling this twice returns the same pattern
     rather than leaving a stray empty slot behind, and an existing pattern is
     never renamed, because the user may already have called it something.
     """
     before = patterns.patternCount()
-    index = patterns.findFirstNextEmptyPat(0)
+    patterns.findFirstNextEmptyPat(midi.FFNEP_FindFirst | midi.FFNEP_DontPromptName)
+
+    # patternNumber is 1-based, and 1 while nothing is selected, so it is a number
+    # rather than an index. Zero means FL reported no selection at all, which is a
+    # failure to report rather than an index to guess at.
+    number = patterns.patternNumber()
+    count = patterns.patternCount()
+    if not number:
+        return {
+            "error": (
+                "patterns.createEmpty: FL reported no pattern selected after "
+                "findFirstNextEmptyPat, so there is no pattern to write into."
+            )
+        }
+    index = number - 1
+    if index >= count:
+        return {
+            "error": (
+                "patterns.createEmpty: FL selected pattern %d, outside the %d pattern(s) "
+                "it reports." % (number, count)
+            )
+        }
+
     if index < before:
         return {
             "created": index,

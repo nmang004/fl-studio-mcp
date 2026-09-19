@@ -203,6 +203,9 @@ class FakeProject:
         self.arrangement_selection = (0, 0)
         self.arrangement_time = 0
         self.notes_by_pattern: dict[int, list[Note]] = {}
+        # Every flags word passed to findFirstNextEmptyPat, so a test can assert
+        # that no call asks FL to open its pattern name prompt.
+        self.pattern_find_flags: list[int] = []
         self.playlist_tracks: list[tuple[str, int, bool, bool]] = []
         self.live_clips: list[tuple] = []
         self.performance_mode = False

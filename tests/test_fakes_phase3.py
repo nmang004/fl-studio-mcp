@@ -43,11 +43,18 @@ def test_selecting_a_pattern_moves_the_current_one(fl_env):
 
 
 def test_find_first_next_empty_pattern_skips_a_used_one(fl_env):
-    """Pattern 0 holds notes, so the next empty slot is 1."""
+    """Pattern 0 holds notes, so the next empty slot is 1.
+
+    The selection is read back through patternNumber because the stub declares this
+    function as returning None (patterns/__properties.py:189). An earlier version of
+    this test asserted its return value, which is what let the controller do the same
+    thing in production and freeze a live FL Studio.
+    """
     patterns = fl_env.modules["patterns"]
     fl_env.project.notes_by_pattern = {0: [object()]}
     patterns.clonePattern(0)
-    assert patterns.findFirstNextEmptyPat(0) == 1
+    patterns.findFirstNextEmptyPat(fl_env.modules["midi"].FFNEP_DontPromptName)
+    assert patterns.patternNumber() - 1 == 1
 
 
 def test_playlist_tracks_report_their_properties(fl_env):

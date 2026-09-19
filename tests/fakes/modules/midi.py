@@ -49,6 +49,13 @@ PIM_FollowGlobal = 2
 # Playlist live clip status mode.
 LB_Status_Default = 0
 
+# findFirstNextEmptyPat flags, from midi/__ffnep_flags.py. The whole point of the
+# pair is the second one: flags 0 means "find first and prompt the user for a name",
+# and that prompt is modal. Modelled rather than ignored, because a fake that cannot
+# express "this call asked FL to open a dialog" cannot fail a test about it.
+FFNEP_FindFirst = 0
+FFNEP_DontPromptName = 1 << 1
+
 
 def build(project: FakeProject) -> ModuleType:
     module = ModuleType("midi")
@@ -92,6 +99,8 @@ def build(project: FakeProject) -> ModuleType:
         ("PIM_AlwaysPickup", PIM_AlwaysPickup),
         ("PIM_FollowGlobal", PIM_FollowGlobal),
         ("LB_Status_Default", LB_Status_Default),
+        ("FFNEP_FindFirst", FFNEP_FindFirst),
+        ("FFNEP_DontPromptName", FFNEP_DontPromptName),
     ):
         setattr(module, name, value)
     return module

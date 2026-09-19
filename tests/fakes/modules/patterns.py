@@ -41,23 +41,31 @@ def build(project: FakeProject) -> ModuleType:
     def jumpToPattern(index: int) -> None:
         selectPattern(index)
 
-    def findFirstNextEmptyPat(flags: int, x: int = -1, y: int = -1) -> int:
-        """Select the first pattern that holds no notes.
+    def findFirstNextEmptyPat(flags: int, x: int = -1, y: int = -1) -> None:
+        """Select the first pattern that holds no notes, and return nothing.
 
         A pattern counts as empty when it is not in `notes_by_pattern`, which is
         the fake's record of which patterns have notes and which do not. A pattern
         that exists but has never been written into is therefore empty, not
         occupied: that is the actual meaning of the function's name, and it is
         what makes calling it twice in a row safe.
+
+        The return is None because the stub says so: `patterns/__properties.py:189`
+        declares `-> None`. An earlier version of this fake returned the index,
+        which is what let the controller compare None with an integer in production
+        while every test passed. The flags are recorded so a test can assert that no
+        caller leaves out FFNEP_DontPromptName, whose absence makes FL open a modal
+        prompt.
         """
+        project.pattern_find_flags.append(flags)
         used = {index for index, notes in project.notes_by_pattern.items() if notes}
         for i in range(len(project.patterns)):
             if i not in used:
                 project.current_pattern = i
-                return i
+                return None
         project.patterns.append(Pattern(f"Pattern {len(project.patterns)}"))
         project.current_pattern = len(project.patterns) - 1
-        return project.current_pattern
+        return None
 
     def clonePattern(index: int | None = None) -> int:
         """Copy a pattern. The length comes too, because a copy that is a
