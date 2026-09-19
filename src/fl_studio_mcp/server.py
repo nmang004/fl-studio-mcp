@@ -1,19 +1,24 @@
 """FL Studio MCP Server - Control FL Studio via Model Context Protocol.
 
 This MCP server provides tools to control FL Studio through two mechanisms:
-1. MIDI + JSON - Real-time control of mixer, transport, channels, and plugins
+1. MIDI + JSON - Real-time control of mixer, transport, channels, patterns and
+   plugins, plus arrangement markers and window state
 2. Piano Roll Scripts - Persistent note placement via JSON + keystroke triggering
 
 Requirements:
-- FL Studio 20.7+ running
-- FLStudioMCP controller script installed (run: ./scripts/setup_mac.sh)
-- On Mac: IAC Driver enabled in Audio MIDI Setup
-- On Windows: loopMIDI virtual MIDI ports configured
-- For piano roll: ComposeWithLLM.pyscript installed in FL Studio
+- FL Studio 20.7+ running, though general.safeToEdit and related functions want
+  API version 29 and the controller reports those as unknown below it
+- The FL Studio MCP controller script installed in FL Studio's Hardware folder
+- On macOS: nothing, because the server creates its own virtual MIDI port
+- On Windows: a loopMIDI port, because Windows has no virtual MIDI API
+- For piano roll: ComposeWithLLM.pyscript installed and bound to a keystroke
 
 Limitations:
-- Cannot load new plugins (only control existing ones)
-- Cannot create new patterns programmatically
+- Cannot load new VST or AU plugins, only control ones already loaded
+- Cannot place clips in the playlist. Markers are the ceiling
+- Cannot render or export audio
+- Cannot write the project tempo. The only function that could is documented as
+  incomplete and buggy, so it is a research spike rather than a tool
 """
 
 from __future__ import annotations
@@ -41,20 +46,30 @@ mcp = FastMCP(
 FL Studio MCP Server - Control FL Studio from AI assistants.
 
 This server provides tools to control FL Studio through its Python scripting API.
-FL Studio must be running with the FLStudioMCP MIDI controller enabled.
+FL Studio must be running with the FL Studio MCP Controller enabled in Options >
+MIDI Settings.
 
 Available tool categories:
-- Transport: Play, stop, record, tempo, position control
-- Mixer: Volume, pan, mute, solo, track management
-- Channels: Channel info, note triggering, step sequencer
-- Plugins: Parameter control, preset navigation (cannot load new plugins)
+- Connection: connect, and confirm FL actually answers
+- Transport: play, stop, record, position, loop mode, playback speed
+- Mixer: volume, pan, mute, solo, naming, colour, EQ, routing, peak levels
+- Channels: channel info, properties, note triggering, step sequencer
+- Patterns: list, rename, recolour, select, clone, create
+- Plugins: parameter control and preset navigation, for already loaded plugins
+- Piano roll: write, delete and read notes, targeted at a named channel
+- Playlist and arrangement: arrangement lanes, markers, window state
+- Undo and batching: undo steps, and running several commands as one edit
+
+Reading the tempo works: it comes back in thousandths of a BPM, so 130000 is 130
+BPM. Writing it is a research spike, and no tempo write tool exists yet.
 
 Important limitations:
-1. Cannot load new VST/AU plugins - only control existing ones
-2. Cannot create new patterns programmatically
-3. Note triggering (fl_trigger_note) is real-time only - notes won't persist
-   unless FL Studio is recording. Use step sequencer (fl_set_grid_bit) for
-   persistent drum patterns.
+1. Cannot load new VST or AU plugins, only control ones already loaded
+2. Cannot place clips in the playlist. Markers and live clips are the ceiling
+3. Cannot render or export audio
+4. Note triggering (fl_trigger_note) is real-time only, and notes do not persist
+   unless FL Studio is recording. Use the piano roll tools or the step sequencer
+   (fl_set_grid_bit) for notes that stay.
 """,
 )
 

@@ -50,3 +50,28 @@ def test_readme_keeps_the_loopmidi_instructions_for_windows():
     """Windows has no virtual MIDI API, so that path must stay documented."""
     text = (REPO_ROOT / "README.md").read_text().lower()
     assert "loopmidi" in text
+
+
+def test_the_server_does_not_tell_clients_to_enable_the_iac_driver():
+    """These strings reach every MCP client, so they must not contradict the README."""
+    text = (REPO_ROOT / "src" / "fl_studio_mcp" / "server.py").read_text()
+    assert "IAC Driver enabled in Audio MIDI Setup" not in text
+
+
+def test_the_server_does_not_claim_patterns_cannot_be_created():
+    text = (REPO_ROOT / "src" / "fl_studio_mcp" / "server.py").read_text()
+    assert "Cannot create new patterns programmatically" not in text
+
+
+def test_the_server_does_not_advertise_a_tempo_write():
+    """Reading tempo works; writing it is an open spike with no tool."""
+    text = (REPO_ROOT / "src" / "fl_studio_mcp" / "server.py").read_text()
+    assert "record, tempo, position control" not in text
+    assert "no tempo write tool exists yet" in text
+
+
+def test_the_server_keeps_the_real_limits_in_front_of_the_model():
+    text = (REPO_ROOT / "src" / "fl_studio_mcp" / "server.py").read_text()
+    assert "Cannot load new VST or AU plugins" in text
+    assert "Cannot place clips in the playlist" in text
+    assert "Cannot render or export audio" in text
