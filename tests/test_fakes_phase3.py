@@ -37,9 +37,9 @@ def test_selecting_a_pattern_moves_the_current_one(fl_env):
     patterns = fl_env.modules["patterns"]
     patterns.clonePattern(0)
     patterns.selectPattern(1)
-    assert patterns.patternNumber() == 1
-    assert patterns.isPatternSelected(1) is True
-    assert patterns.isPatternSelected(0) is False
+    assert patterns.patternNumber() == 2, "patternNumber is 1-based on live FL"
+    assert patterns.isPatternSelected(2) is True, "isPatternSelected is 1-based too"
+    assert patterns.isPatternSelected(1) is False
 
 
 def test_find_first_next_empty_pattern_skips_a_used_one(fl_env):

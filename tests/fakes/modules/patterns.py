@@ -20,7 +20,13 @@ def build(project: FakeProject) -> ModuleType:
         return len(project.patterns)
 
     def patternNumber() -> int:
-        return project.current_pattern
+        """The 1-based number of the current pattern.
+
+        Measured on live FL Studio 2026: this returns 1 while no pattern is
+        selected at all, and 1 for the first pattern, so it is a number rather
+        than an index. The controller subtracts one to report an index.
+        """
+        return project.current_pattern + 1
 
     def patternMax() -> int:
         return 999
@@ -36,18 +42,20 @@ def build(project: FakeProject) -> ModuleType:
         selectPattern(index)
 
     def findFirstNextEmptyPat(flags: int, x: int = -1, y: int = -1) -> int:
-        """Select the first pattern that has no notes, creating one if needed.
+        """Select the first pattern that holds no notes.
 
-        A pattern counts as empty when no note in the project points at it. The
-        fake tracks that with `project.notes_by_pattern` rather than guessing.
+        A pattern counts as empty when it is not in `notes_by_pattern`, which is
+        the fake's record of which patterns have notes and which do not. A pattern
+        that exists but has never been written into is therefore empty, not
+        occupied: that is the actual meaning of the function's name, and it is
+        what makes calling it twice in a row safe.
         """
-        used = set(project.notes_by_pattern)
+        used = {index for index, notes in project.notes_by_pattern.items() if notes}
         for i in range(len(project.patterns)):
             if i not in used:
                 project.current_pattern = i
                 return i
-        project.patterns.append(Pattern(f"Pattern {len(project.patterns) + 1}"))
-        project.notes_by_pattern.setdefault(len(project.patterns) - 1, [])
+        project.patterns.append(Pattern(f"Pattern {len(project.patterns)}"))
         project.current_pattern = len(project.patterns) - 1
         return project.current_pattern
 
@@ -76,12 +84,20 @@ def build(project: FakeProject) -> ModuleType:
     def getPatternLength(index: int) -> int:
         return project.pattern(index).length
 
-    def isPatternDefault(index: int) -> bool:
-        pattern = project.pattern(index)
-        return pattern.name == f"Pattern {index + 1}" and pattern.color == 0x808080
+    def isPatternDefault(number: int) -> bool:
+        """Whether pattern `number` is an untouched default.
 
-    def isPatternSelected(index: int) -> bool:
-        return project.current_pattern == index
+        1-based, matching live FL Studio 2026, where isPatternDefault(0) raises
+        "Index out of range" and the first pattern is number 1. FL's own default
+        names are "Pattern 0", "Pattern 1", and so on, so the name for number n is
+        "Pattern {n - 1}".
+        """
+        pattern = project.pattern(number - 1)
+        return pattern.name == f"Pattern {number - 1}" and pattern.color == 0x808080
+
+    def isPatternSelected(number: int) -> bool:
+        """Whether pattern `number` is current. 1-based, as on live FL."""
+        return project.current_pattern == number - 1
 
     def deselectAll() -> None:
         project.current_pattern = -1

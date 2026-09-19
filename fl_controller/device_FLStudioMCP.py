@@ -28,6 +28,7 @@ import channels
 import device
 import general
 import mixer
+import patterns
 import plugins
 import transport
 import ui
@@ -199,6 +200,20 @@ def _route_command(action: str, params: dict) -> dict:
         return handle_system_ping()
     elif action == "system.batch":
         return handle_system_batch(params)
+
+    # Pattern commands
+    elif action == "patterns.getAll":
+        return handle_patterns_get_all()
+    elif action == "patterns.setName":
+        return handle_patterns_set_name(params)
+    elif action == "patterns.setColor":
+        return handle_patterns_set_color(params)
+    elif action == "patterns.select":
+        return handle_patterns_select(params)
+    elif action == "patterns.clone":
+        return handle_patterns_clone(params)
+    elif action == "patterns.createEmpty":
+        return handle_patterns_create_empty(params)
 
     # Undo commands
     elif action == "general.saveUndo":
@@ -529,6 +544,11 @@ MUTATING_ACTIONS = frozenset([
     # itself, before running anything, so that a refusal can be reported in the
     # shape a batch response has, with the counts a caller reads. Its individual
     # commands are checked here as they are dispatched.
+    "patterns.clone",
+    "patterns.createEmpty",
+    "patterns.select",
+    "patterns.setColor",
+    "patterns.setName",
     "transport.record",
     "transport.setLoopMode",
     "transport.setPlaybackSpeed",
@@ -1391,3 +1411,162 @@ def handle_plugins_get_color(params: dict) -> dict:
         color = plugins.getColor(index, -1, use_global)
 
     return {"color": hex(color)}
+
+
+# =============================================================================
+# Pattern Handlers
+# =============================================================================
+
+
+def _check_pattern_index(index: int, action: str) -> dict | None:
+    """Refuse an index outside the project, naming the range.
+
+    `patterns` has no accessor that raises on a bad index, unlike `channels` and
+    `mixer`, so the check is explicit. Letting FL decide what pattern 99 means
+    would be a guess about the user's project.
+    """
+    count = patterns.patternCount()
+    if not 0 <= index < count:
+        return {
+            "error": (
+                "%s: pattern %d does not exist. This project has %d patterns, "
+                "indexed 0 to %d." % (action, index, count, count - 1)
+            )
+        }
+    return None
+
+
+def _pattern_entry(index: int) -> dict:
+    """One pattern's properties, with each read guarded.
+
+    A single unreadable field must not lose the other patterns, so each lookup
+    reports None rather than raising.
+
+    Note the index bases, which were measured rather than assumed and which do not
+    agree with each other on live FL Studio 2026:
+
+        patternCount()          0-based count
+        patternNumber()         1-based number of the current pattern
+        getPatternName(0)       0-based, so name 0 exists
+        getPatternLength(0)     0-based
+        isPatternSelected(0)    1-based: index 0 raises for isPatternDefault and
+        isPatternDefault(0)     returns False for isPatternSelected
+
+    This function takes a 0-based index, because that is what the caller sees and
+    what every other part of this server uses, and translates for the two
+    accessors that need it.
+    """
+    entry = {"index": index}
+    readers = (
+        ("name", lambda: patterns.getPatternName(index)),
+        ("length", lambda: patterns.getPatternLength(index)),
+        ("is_current", lambda: bool(patterns.isPatternSelected(index + 1))),
+        ("is_default", lambda: bool(patterns.isPatternDefault(index + 1))),
+    )
+    for key, reader in readers:
+        try:
+            entry[key] = reader()
+        except Exception:
+            entry[key] = None
+
+    try:
+        # FL reports the colour as a signed int, so a colour with the high bit set
+        # arrives negative. The caller asked for 0xRRGGBB.
+        entry["color"] = patterns.getPatternColor(index) & 0xFFFFFF
+    except Exception:
+        entry["color"] = None
+    return entry
+
+
+def handle_patterns_get_all() -> dict:
+    """Every pattern with its properties, in one call rather than five.
+
+    A producer asking what is in this project should not need a round trip per
+    pattern per field.
+    """
+    # patternNumber() is 1-based, and is 1 (not 0) when no pattern is selected,
+    # so an index is one less than it reports.
+    number = patterns.patternNumber()
+    return {
+        "patterns": [_pattern_entry(i) for i in range(patterns.patternCount())],
+        "current": number - 1 if number else None,
+    }
+
+
+def handle_patterns_set_name(params: dict) -> dict:
+    """Rename a pattern."""
+    index = _require(params, "index", "patterns.setName")
+    name = params.get("name")
+    if name is None:
+        return {"error": "patterns.setName requires a 'name'"}
+    refusal = _check_pattern_index(index, "patterns.setName")
+    if refusal is not None:
+        return refusal
+    patterns.setPatternName(index, name)
+    return {"index": index, "name": patterns.getPatternName(index)}
+
+
+def handle_patterns_set_color(params: dict) -> dict:
+    """Recolour a pattern."""
+    index = _require(params, "index", "patterns.setColor")
+    color = params.get("color")
+    if color is None:
+        return {"error": "patterns.setColor requires a 'color'"}
+    refusal = _check_pattern_index(index, "patterns.setColor")
+    if refusal is not None:
+        return refusal
+    patterns.setPatternColor(index, int(color))
+    return {"index": index, "color": patterns.getPatternColor(index)}
+
+
+def handle_patterns_select(params: dict) -> dict:
+    """Make a pattern the current one."""
+    index = _require(params, "index", "patterns.select")
+    refusal = _check_pattern_index(index, "patterns.select")
+    if refusal is not None:
+        return refusal
+    patterns.selectPattern(index)
+    return {"index": index, "current": patterns.patternNumber()}
+
+
+def handle_patterns_clone(params: dict) -> dict:
+    """Copy a pattern, including its name and length."""
+    index = _require(params, "index", "patterns.clone")
+    refusal = _check_pattern_index(index, "patterns.clone")
+    if refusal is not None:
+        return refusal
+    cloned = patterns.clonePattern(index)
+    return {
+        "cloned": cloned,
+        "name": patterns.getPatternName(cloned),
+        "count": patterns.patternCount(),
+    }
+
+
+def handle_patterns_create_empty(params: dict) -> dict:
+    """Select the next empty pattern, creating a slot if every one is used.
+
+    patterns.findFirstNextEmptyPat exists in the stubs, which is why the claim
+    that patterns cannot be created is overstated: selecting the next empty slot
+    and writing into it is creation in practice.
+
+    Only a genuinely new slot is named. A pattern that exists but holds no notes
+    is still the next empty one, so calling this twice returns the same pattern
+    rather than leaving a stray empty slot behind, and an existing pattern is
+    never renamed, because the user may already have called it something.
+    """
+    before = patterns.patternCount()
+    index = patterns.findFirstNextEmptyPat(0)
+    if index < before:
+        return {
+            "created": index,
+            "name": patterns.getPatternName(index),
+            "was_existing": True,
+        }
+
+    # FL names its own patterns "Pattern 0", "Pattern 1", and so on, so a name
+    # generated here matches what the user already sees rather than looking like a
+    # different convention.
+    name = params.get("name") or ("Pattern %d" % index)
+    patterns.setPatternName(index, name)
+    return {"created": index, "name": name, "was_existing": False}

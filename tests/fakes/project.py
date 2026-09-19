@@ -130,7 +130,7 @@ class FakeProject:
     ) -> None:
         self.channels = channels if channels is not None else []
         self.tracks = tracks if tracks is not None else [MixerTrack("Master")]
-        self.patterns = patterns if patterns is not None else [Pattern("Pattern 1")]
+        self.patterns = patterns if patterns is not None else [Pattern("Pattern 0")]
         self.notes: list[Note] = []
 
         # Thousandths of a BPM. Live FL Studio returned 130000 at 130 BPM.
