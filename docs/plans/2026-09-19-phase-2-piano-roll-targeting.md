@@ -853,18 +853,31 @@ git commit -m "Confirm the notes landed by reading the piano roll back"
 
 ## Phase 2 exit criteria
 
-The roadmap's own bar, restated so it can be checked rather than believed:
+Checked on 2026-09-19 against the committed tree and live FL Studio 2026.
 
-- [ ] `fl_send_notes(channel=3, ...)` lands notes on channel 3, or reports a
-      specific failure. Proven by read-back, live.
-- [ ] A failed or mismatched target stops before the trigger, so a script run can
-      never write to an unconfirmed piano roll.
-- [ ] Every piano roll tool takes a `channel`, and its result names the channel it
-      used.
-- [ ] `fl_get_piano_roll_state(channel=n)` refreshes and reports the channel.
-- [ ] `pytest` green and `ruff check .` clean with no FL Studio running.
-- [ ] `docs/SMOKE_TEST.md` records the live run, including that the keystroke path
+- [x] `fl_send_notes(channel=3, ...)` lands notes on the named channel or reports a
+      specific failure. Verified live on channel 2 (808 HiHat) with read-back, and
+      confirmed by the user looking at the piano roll.
+- [x] A failed or mismatched target stops before the trigger. A test asserts the
+      trigger was never called when the target failed or FL reported a different
+      selection, so a script run cannot write to an unconfirmed piano roll.
+- [x] Every piano roll tool takes a `channel`, checked against the MCP server's own
+      registry rather than against module attributes, and every result names the
+      channel it used or says plainly that none was given.
+- [x] `fl_get_piano_roll_state(channel=n)` refreshes and reports the channel.
+- [x] `pytest` green and `ruff check .` clean with no FL Studio running. 317 tests.
+- [x] `docs/SMOKE_TEST.md` records the live run, including that the keystroke path
       could not be exercised without the macOS Accessibility permission.
+
+### What the live run taught us that the plan did not anticipate
+
+- The verification read is genuinely independent of the script's claim, and this
+  was demonstrated by accident: the state export reported 2 notes while the write
+  existed and 0 after the user undid it. Worth recording, because a verification
+  that cannot fail is not a verification, and this one was observed on both sides.
+- The user reached for Ctrl+Z as the natural way to remove two notes they did not
+  want, and one press removed both. That is the undo behaviour Phase 1 measured,
+  and it is the behaviour a person expects.
 
 ## What Phase 2 deliberately does not do
 
