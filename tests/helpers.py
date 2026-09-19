@@ -10,6 +10,7 @@ from __future__ import annotations
 import importlib.util
 import sys
 import types
+from importlib.machinery import SourceFileLoader
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
@@ -88,11 +89,17 @@ def load_pyscript(monkeypatch, fl_modules: dict | None = None) -> types.ModuleTy
 
 
 def _load_from_path(path: Path, name: str, monkeypatch) -> types.ModuleType:
-    """Import a module from an arbitrary path, replacing any earlier copy."""
+    """Import a module from an arbitrary path, replacing any earlier copy.
+
+    The loader is chosen explicitly rather than by extension, because the piano
+    roll script is a `.pyscript` and importlib only knows the extensions in
+    importlib.machinery.SOURCE_SUFFIXES.
+    """
     sys.modules.pop(name, None)
-    spec = importlib.util.spec_from_file_location(name, path)
+    loader = SourceFileLoader(name, str(path))
+    spec = importlib.util.spec_from_loader(name, loader)
     module = importlib.util.module_from_spec(spec)
     sys.modules[name] = module
     monkeypatch.setitem(sys.modules, name, module)
-    spec.loader.exec_module(module)
+    loader.exec_module(module)
     return module

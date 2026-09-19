@@ -38,6 +38,8 @@ class Channel:
     solo: bool = False
     selected: bool = False
     target_fx_track: int = 0
+    channel_type: int = 1  # channels.CT_Native
+    grid_assigned: bool = False
     grid: list[bool] = field(default_factory=lambda: [False] * 16)
 
     @property
@@ -148,6 +150,34 @@ class FakeProject:
         self.snap_mode = 0
         self.metronome = False
         self.focused_window = -1
+        self.song_length_ticks = 0
+        self.playback_speed = 1.0
+        self.rec_events: list[tuple[int, int, int]] = []
+        self.ui_state: dict[str, object] = {}
+        self.notifications: list[int] = []
+        self.browser_calls: list[tuple] = []
+        self.device_assigned = False
+        self.device_port_number = -1
+        self.sysex_sent: list[bytes] = []
+        self.midi_out: list[tuple] = []
+        self.focused_node_caption = ""
+        self.selected_mixer_track = 0
+        self.mixer_selected: list[int] = []
+        self.snap_root_note = 0
+        self.snap_scale_helper = 0
+        self.tsnum = 4
+        self.tsden = 4
+        self.timeline_selection = (0, 0)
+        self.midi_notes: list[tuple[int, int, int, int]] = []
+        self.plugin_params: dict[tuple[int, int], dict[int, float]] = {}
+        self.group_index = 0
+        self.plugin_names: dict[tuple[int, int], str] = {}
+        self.arrangement_selection = (0, 0)
+        self.arrangement_time = 0
+        self.notes_by_pattern: dict[int, list[Note]] = {}
+        self.playlist_tracks: list[tuple[str, int, bool, bool]] = []
+        self.live_clips: list[tuple] = []
+        self.performance_mode = False
 
     @classmethod
     def with_channels(cls, count: int) -> FakeProject:

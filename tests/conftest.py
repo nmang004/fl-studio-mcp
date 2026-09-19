@@ -1,9 +1,10 @@
 """Shared fixtures.
 
-Two things every FL-side test needs: a settings tree that already exists, because
-the controller is not allowed to create one (FL's sandbox blocks mkdir), and a
-`sys.modules` that is restored afterwards, because the scripts are loaded under
-fixed names and would otherwise leak between tests.
+Three things every FL-side test needs: a settings tree that already exists,
+because the controller is not allowed to create one (FL's sandbox blocks mkdir),
+a `sys.modules` that is restored afterwards, because the scripts are loaded under
+fixed names and would otherwise leak between tests, and a fake FL to load them
+against.
 """
 
 from __future__ import annotations
@@ -13,7 +14,49 @@ from pathlib import Path
 
 import pytest
 
-from tests.helpers import CONTROLLER_PATH, PYSCRIPT_PATH, load_controller, load_pyscript
+from tests import fakes
+from tests.fakes.project import FakeProject
+from tests.helpers import load_controller, load_pyscript
+
+
+class Harness:
+    """Everything a test needs to drive the real scripts against a fake FL."""
+
+    def __init__(self, project, modules, settings, controller, pyscript):
+        self.project = project
+        self.modules = modules
+        self.settings = settings
+        self.controller = controller
+        self.pyscript = pyscript
+        self.trigger_count = 0
+
+    @property
+    def hardware_dir(self) -> Path:
+        return self.settings / "Hardware" / "FLStudioMCP"
+
+    @property
+    def piano_roll_dir(self) -> Path:
+        return self.settings / "Piano roll scripts"
+
+    @property
+    def command_file(self) -> Path:
+        return self.hardware_dir / "mcp_command.json"
+
+    @property
+    def response_file(self) -> Path:
+        return self.hardware_dir / "mcp_response.json"
+
+    @property
+    def request_file(self) -> Path:
+        return self.piano_roll_dir / "mcp_request.json"
+
+    @property
+    def piano_roll_response_file(self) -> Path:
+        return self.piano_roll_dir / "mcp_response.json"
+
+    @property
+    def state_file(self) -> Path:
+        return self.piano_roll_dir / "piano_roll_state.json"
 
 
 @pytest.fixture(autouse=True)
@@ -61,11 +104,38 @@ def pyscript(fl_settings, monkeypatch):
     return load_pyscript(monkeypatch)
 
 
-@pytest.fixture
-def controller_path() -> Path:
-    return CONTROLLER_PATH
+def make_project() -> FakeProject:
+    """A small but complete project: channels, mixer tracks and playlist tracks.
+
+    Built in one place so every test starts from the same shape and a test that
+    wants something different says so explicitly.
+    """
+    project = FakeProject.with_channels(4)
+    project.tracks = FakeProject.with_tracks(8).tracks
+    project.playlist_tracks = [(f"Track {i + 1}", 0x808080, False, False) for i in range(4)]
+    project.patterns = [FakeProject().patterns[0]]
+    project.notes_by_pattern = {0: []}
+    return project
 
 
 @pytest.fixture
-def pyscript_path() -> Path:
-    return PYSCRIPT_PATH
+def fl_env(fl_settings, monkeypatch):
+    """A fake FL, the two real scripts, and a temporary settings tree."""
+    project = make_project()
+    modules = fakes.install(project)
+    # The fakes are passed explicitly: load_controller installs empty stand-ins
+    # for any module the caller does not supply, and those would shadow the fakes
+    # that were just installed, leaving the script talking to blank modules.
+    controller = load_controller(monkeypatch, modules)
+    pyscript = load_pyscript(monkeypatch, modules)
+    harness = Harness(
+        project=project,
+        modules=modules,
+        settings=fl_settings,
+        controller=controller,
+        pyscript=pyscript,
+    )
+    try:
+        yield harness
+    finally:
+        fakes.uninstall()
