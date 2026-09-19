@@ -30,13 +30,24 @@ def scale_degrees(helper: str) -> list[int]:
             "0,1,0,1,0,0,1,0,1,0,1,0" for C major.
 
     Returns:
-        Semitone offsets from C, ascending.
+        Semitone offsets from C, ascending. An empty list when no scale is set.
 
     Raises:
-        ValueError: If the helper is not twelve values of 0 or 1, or if it marks
+        ValueError: If the helper has values that are neither 0 nor 1, or marks
             every note as out of scale, which cannot describe a scale.
+
+    Note:
+        Measured on live FL Studio 2026: when the piano roll's snap to scale is
+        switched off, this returns an empty string rather than twelve values. That is
+        not an error, it is the absence of a scale, so it gives an empty list. An
+        earlier version treated it as malformed and raised, which would have made
+        every project without snap to scale unusable.
     """
-    parts = [part.strip() for part in str(helper).split(",")]
+    text = str(helper).strip()
+    if not text:
+        return []
+
+    parts = [part.strip() for part in text.split(",")]
     if len(parts) != SCALE_LENGTH:
         raise ValueError(
             f"snap_scale_helper must hold {SCALE_LENGTH} values, got {len(parts)}: "
@@ -167,6 +178,10 @@ def _context_from_fields(reply: dict[str, Any]) -> dict[str, Any]:
     context: dict[str, Any] = {
         "root_note": root,
         "scale_helper": helper,
+        # An empty helper means the producer has not turned snap to scale on, so
+        # there is no key to report. Saying so is better than naming C major, which
+        # is what an absent setting would otherwise look like.
+        "scale_set": bool(helper),
         "tsnum": tsnum,
         "tsden": tsden,
         # The two reply shapes name this differently: the top level field carries
@@ -178,7 +193,7 @@ def _context_from_fields(reply: dict[str, Any]) -> dict[str, Any]:
         "time_signature": f"{tsnum}/{tsden}",
         "beats_per_bar": _beats_per_bar(tsnum, tsden),
     }
-    if helper is not None:
+    if helper:
         degrees = scale_degrees(helper)
         # C-aligned, exactly as the API reports it, so a caller can check the
         # translation.

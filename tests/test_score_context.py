@@ -120,3 +120,19 @@ def test_the_context_is_found_even_when_another_request_is_queued(piano_roll_wir
     context = score_module.context_from_reply(reply)
     assert context["key"] == "A minor"
     assert context["time_signature"] == "3/4"
+
+
+def test_an_absent_scale_is_reported_as_absent(fl_env):
+    """Measured live: with snap to scale off, the helper is an empty string.
+
+    Treating that as malformed would make every project without snap to scale
+    unusable, and naming C major would invent a key the producer never chose.
+    """
+    context = read(fl_env, root=0, helper="")
+    assert context["scale_set"] is False
+    assert "key" not in context
+    assert context["time_signature"] == "4/4", "the meter is still knowable"
+
+
+def test_an_empty_helper_gives_no_degrees(fl_env):
+    assert score.scale_degrees("") == []

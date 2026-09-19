@@ -46,6 +46,12 @@ def get_project_context() -> dict[str, Any]:
     """
     reply = read_context()
     context = score.context_from_reply(reply)
+    if not context.get("scale_set"):
+        context["note"] = (
+            "The piano roll's snap to scale is switched off in this project, so FL "
+            "reports no key. Set it in the piano roll, or pass an explicit root to "
+            "the tool, if you want generated notes to follow a key."
+        )
 
     # The controller owns the PPQ, because a caller may want it without having run
     # a piano roll script at all.
