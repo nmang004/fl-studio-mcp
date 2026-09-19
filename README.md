@@ -395,6 +395,7 @@ fl-studio-mcp
 | `fl_get_routing` | Show where a mixer track sends its audio |
 | `fl_set_routing` | Route a mixer track to other tracks, or remove its routings |
 | `fl_get_levels` | Read peak levels, to find what clips and what never sounds |
+| `fl_sample_levels` | Sample peak levels over a window while the project plays |
 
 ### Mixer EQ
 
