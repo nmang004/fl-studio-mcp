@@ -32,6 +32,7 @@ https://github.com/user-attachments/assets/c2b1a5e7-1640-41fa-82bc-18ca7cbae9e8
 - Set track names and colors
 - Stereo separation control
 - Read and write every EQ band of a track in one call
+- Inspect where each track sends and read peak levels, to find what clips and what never sounds
 
 ### Channel Rack Control
 
@@ -41,12 +42,24 @@ https://github.com/user-attachments/assets/c2b1a5e7-1640-41fa-82bc-18ca7cbae9e8
 - Route channels to mixer tracks
 - Trigger MIDI notes in real-time
 - Step sequencer control (get/set grid bits)
+- Read channel type, pitch and routing, and quantize a channel's notes
 
 ### Pattern Control
 
 - List every pattern with its name, color, length and whether it is current
 - Rename, recolor, select or clone a pattern
 - Create a new empty pattern and make it current
+
+### Playlist And Markers
+
+- List the arrangement's track lanes and their mute and solo state
+- Name, recolor, mute or solo a playlist track
+- Add and list arrangement markers, since clips cannot be placed
+
+### FL Windows
+
+- Show or hide the mixer, channel rack, playlist, piano roll or browser
+- Report which windows are open and which one has focus
 
 ### Plugin Control
 
@@ -334,6 +347,9 @@ fl-studio-mcp
 | `fl_set_track_name` | Rename track |
 | `fl_set_track_color` | Set track color |
 | `fl_set_stereo_separation` | Adjust stereo width |
+| `fl_get_routing` | Show where a mixer track sends its audio |
+| `fl_set_routing` | Route a mixer track to other tracks, or remove its routings |
+| `fl_get_levels` | Read peak levels, to find what clips and what never sounds |
 
 ### Mixer EQ
 
@@ -364,6 +380,8 @@ fl-studio-mcp
 | `fl_set_grid_bit` | Set step sequencer step |
 | `fl_get_step_sequence` | Get full pattern |
 | `fl_set_step_sequence` | Set full pattern |
+| `fl_get_channel_properties` | Read a channel's type, pitch and routing |
+| `fl_set_channel_properties` | Set a channel's pitch, or quantize its notes |
 
 ### Patterns
 
@@ -372,6 +390,23 @@ fl-studio-mcp
 | `fl_get_patterns` | List every pattern with its name, color, length and which one is current |
 | `fl_set_pattern` | Rename, recolor, select or clone a pattern |
 | `fl_create_pattern` | Make a new empty pattern current |
+
+### Playlist
+
+| Tool | Description |
+|------|-------------|
+| `fl_get_playlist_tracks` | List the arrangement's named track lanes with their mute and solo state |
+| `fl_set_playlist_track` | Name, recolor, mute or solo a playlist track |
+| `fl_get_markers` | List the arrangement's markers and the current timeline selection |
+| `fl_add_marker` | Label a point in the arrangement with a named marker |
+
+### FL Windows
+
+| Tool | Description |
+|------|-------------|
+| `fl_get_ui_state` | Report which FL windows are open and which one has focus |
+| `fl_show_window` | Open the mixer, channel rack, playlist, piano roll or browser |
+| `fl_hide_window` | Close one of those windows |
 
 ### Plugins
 
@@ -412,6 +447,35 @@ against the wrong piano roll.
 | `fl_batch` | Run several commands as one edit that stops at the first failure |
 | `fl_undo` | Undo one or more steps |
 | `fl_undo_history` | Report how deep the undo history is |
+
+### Routing and Metering
+
+| Tool | Description |
+|------|-------------|
+| `fl_get_routing` | Find out where a mixer track sends its audio |
+| `fl_set_routing` | Route a mixer track to other tracks, or remove its routings |
+| `fl_get_levels` | Read peak levels to find what clips and what never sounds |
+
+### Playlist, Arrangement and Windows
+
+A playlist track is an arrangement lane. It is not a mixer track and not a Channel Rack channel, and FL keeps the three separate.
+
+| Tool | Description |
+|------|-------------|
+| `fl_get_playlist_tracks` | List the arrangement lanes that the user has named |
+| `fl_set_playlist_track` | Rename, recolour, mute or solo an arrangement lane |
+| `fl_get_markers` | List the arrangement's markers and the timeline selection |
+| `fl_add_marker` | Place a named marker, for example Intro or Drop |
+| `fl_get_ui_state` | Find out which FL windows are open and what has focus |
+| `fl_show_window` | Show an FL window |
+| `fl_hide_window` | Hide an FL window |
+
+### Channel Properties
+
+| Tool | Description |
+|------|-------------|
+| `fl_get_channel_properties` | Read a channel's type, pitch and mixer routing |
+| `fl_set_channel_properties` | Set a channel's pitch, or quantize its notes |
 
 ## Example Workflows
 
@@ -508,7 +572,7 @@ This MCP server uses a hybrid approach:
 
 ### How It Works
 
-1. **Transport, Mixer (including EQ), Channels, Patterns, Plugins, batch and undo**:
+1. **Transport, Mixer (including EQ, routing and levels), Channels, Patterns, Playlist, Windows, Plugins, batch and undo**:
    - MCP server writes command to JSON file
    - Sends MIDI trigger note to FL Studio
    - FL Studio controller script reads JSON, executes API, writes response
@@ -566,11 +630,14 @@ fl-studio-mcp/
 │   │   ├── patterns.py
 │   │   ├── piano_roll.py
 │   │   ├── plugins.py
+│   │   ├── project.py
+│   │   ├── routing.py
 │   │   └── transport.py
 │   └── utils/
 │       ├── connection.py        # FL Studio connection wrapper
 │       ├── fl_trigger.py        # Piano roll keystroke trigger
-│       └── midi_connection.py   # MIDI + JSON communication layer
+│       ├── midi_connection.py   # MIDI + JSON communication layer
+│       └── paths.py             # FL Studio settings directory resolution
 ├── install.sh                   # One-command installer (macOS/Linux)
 └── install.ps1                  # One-command installer (Windows)
 ```
