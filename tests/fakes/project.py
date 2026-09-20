@@ -200,6 +200,11 @@ class FakeProject:
         self.plugin_params: dict[tuple[int, int], dict[int, float]] = {}
         self.group_index = 0
         self.plugin_names: dict[tuple[int, int], str] = {}
+        # The name the producer gave the plugin, which plugins.getPluginName
+        # returns only when its userName argument is set.
+        self.plugin_user_names: dict[tuple[int, int], str] = {}
+        # Every call whose argument order this suite has been wrong about before.
+        self.plugin_calls: list[tuple[str, dict]] = []
         self.arrangement_selection = (0, 0)
         self.arrangement_time = 0
         self.notes_by_pattern: dict[int, list[Note]] = {}

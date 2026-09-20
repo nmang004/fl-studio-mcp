@@ -13,6 +13,15 @@ from tests.fakes.project import FakeProject, clamp
 
 PARAM_COUNT = 8
 
+# From midi/__pickup_modes.py and the colour flag the stub declares as the default of
+# plugins.getColor. Named rather than written as bare numbers so a test can say which
+# one it means.
+PIM_None = 0
+PIM_AlwaysPickup = 1
+PIM_FollowGlobal = 2
+GC_BackgroundColor = 0
+GC_Semitone = 1
+
 
 def _params(project: FakeProject, index: int, slot: int) -> dict[int, float]:
     return project.plugin_params.setdefault((index, slot), {})
@@ -38,12 +47,26 @@ def build(project: FakeProject) -> ModuleType:
         )
 
     def getPluginName(
-        index: int, slotIndex: int = -1, useGlobalIndex: bool = False
+        index: int,
+        slotIndex: int = -1,
+        userName: bool = False,
+        useGlobalIndex: bool = False,
     ) -> str:
+        """The plugin's own name, or the name the user gave it when asked.
+
+        The real signature is `(index, slotIndex, userName, useGlobalIndex)`, read from
+        `plugins/__init__.py:89`. The controller used to pass `use_global` in the
+        `userName` slot, so it always reported the user's name, and this fake had the
+        same wrong signature and agreed with it.
+        """
         if slotIndex < 0:
             project.channel(index)
         if not isValid(index, slotIndex):
             return ""
+        if userName:
+            return project.plugin_user_names.get(
+                (index, slotIndex), project.plugin_names.get((index, slotIndex), "Fake Plugin")
+            )
         return project.plugin_names.get((index, slotIndex), "Fake Plugin")
 
     def getParamCount(
@@ -86,8 +109,13 @@ def build(project: FakeProject) -> ModuleType:
         paramIndex: int,
         index: int,
         slotIndex: int = -1,
+        pickupMode: int = PIM_None,
         useGlobalIndex: bool = False,
     ) -> str:
+        """The display string. Its fourth argument is pickupMode, not the index flag."""
+        project.plugin_calls.append(
+            ("getParamValueString", {"pickupMode": pickupMode, "useGlobalIndex": useGlobalIndex})
+        )
         return f"{getParamValue(paramIndex, index, slotIndex, useGlobalIndex):.3f}"
 
     def setParamValue(
@@ -95,8 +123,13 @@ def build(project: FakeProject) -> ModuleType:
         paramIndex: int,
         index: int,
         slotIndex: int = -1,
+        pickupMode: int = 0,
         useGlobalIndex: bool = False,
     ) -> None:
+        """The fifth argument is pickupMode, and a scripted write wants PIM_None."""
+        project.plugin_calls.append(
+            ("setParamValue", {"pickupMode": pickupMode, "useGlobalIndex": useGlobalIndex})
+        )
         if slotIndex < 0:
             project.channel(index)
         if not 0 <= paramIndex < PARAM_COUNT:
@@ -115,9 +148,19 @@ def build(project: FakeProject) -> ModuleType:
     def prevPreset(index: int, slotIndex: int = -1, useGlobalIndex: bool = False) -> None:
         project.channel(index)
 
-    def getColor(index: int, slotIndex: int = -1, useGlobalIndex: bool = False) -> int:
-        project.channel(index)
-        return 0x808080
+    def getColor(
+        index: int,
+        slotIndex: int = -1,
+        flag: int = GC_BackgroundColor,
+        useGlobalIndex: bool = False,
+    ) -> int:
+        """The third argument is a colour flag: 0 background, 1 semitone."""
+        project.plugin_calls.append(
+            ("getColor", {"flag": flag, "useGlobalIndex": useGlobalIndex})
+        )
+        if slotIndex < 0:
+            project.channel(index)
+        return GC_BackgroundColor if flag == GC_BackgroundColor else 0x00FF00
 
     module.isValid = isValid
     module.getPluginName = getPluginName

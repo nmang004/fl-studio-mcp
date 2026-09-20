@@ -49,6 +49,15 @@ PIM_FollowGlobal = 2
 # Playlist live clip status mode.
 LB_Status_Default = 0
 
+# Colour and plugin name flags, from midi/__get_color_flags.py and
+# midi/__plugin_get_name_flags.py. Named because the controller asks for a specific
+# one, and a bare 0 or 1 in a test would not say which.
+GC_BackgroundColor = 0
+GC_Semitone = 1
+FPN_Param = 0
+FPN_ParamValue = 1
+FPN_Preset = 6
+
 # findFirstNextEmptyPat flags, from midi/__ffnep_flags.py. The whole point of the
 # pair is the second one: flags 0 means "find first and prompt the user for a name",
 # and that prompt is modal. Modelled rather than ignored, because a fake that cannot
@@ -95,6 +104,11 @@ def build(project: FakeProject) -> ModuleType:
         ("widChannelRack", widChannelRack),
         ("widPianoRoll", widPianoRoll),
         ("ST_Int", ST_Int),
+        ("GC_BackgroundColor", GC_BackgroundColor),
+        ("GC_Semitone", GC_Semitone),
+        ("FPN_Param", FPN_Param),
+        ("FPN_ParamValue", FPN_ParamValue),
+        ("FPN_Preset", FPN_Preset),
         ("PIM_None", PIM_None),
         ("PIM_AlwaysPickup", PIM_AlwaysPickup),
         ("PIM_FollowGlobal", PIM_FollowGlobal),
