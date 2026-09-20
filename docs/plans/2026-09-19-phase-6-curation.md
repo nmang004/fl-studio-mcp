@@ -1193,8 +1193,8 @@ the test double had the wrong signature and the wrong return type and the suite 
       tests. 101 tools, 1075 tests.
 - [x] The live runs are recorded in `docs/SMOKE_TEST.md`, including the two freezes and
       everything that could not be run.
-- [ ] `pytest` green and `ruff check .` clean with no FL Studio running, and a clean
-      clone installs with `uv sync --dev --locked` and passes.
+- [x] `pytest` green and `ruff check .` clean with no FL Studio running, and a clean
+      clone installs with `uv sync --dev --locked` and passes. 1075 tests, 101 tools.
 - [ ] A riff can be saved, found and recalled transposed into the project's key, with
       clamped notes counted and reported.
 - [ ] A snapshot can be taken, diffed against the live project, and restored through
@@ -1209,8 +1209,8 @@ the test double had the wrong signature and the wrong return type and the suite 
       project's own meter, and says so.
 - [ ] Templates validate before they apply, skip work they do not own, and never claim
       to load an instrument.
-- [ ] `pytest` green and `ruff check .` clean with no FL Studio running, and a clean
-      clone installs with `uv sync --dev --locked` and passes.
+- [x] `pytest` green and `ruff check .` clean with no FL Studio running, and a clean
+      clone installs with `uv sync --dev --locked` and passes. 1075 tests, 101 tools.
 - [ ] `docs/SMOKE_TEST.md` records the live runs and what could not be run.
 
 ## What Phase 6 deliberately does not do
