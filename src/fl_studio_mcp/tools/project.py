@@ -65,8 +65,31 @@ def add_marker(time: int, name: str) -> dict[str, Any]:
 
 
 def get_ui_state() -> dict[str, Any]:
-    """Which windows are open, and what has focus."""
+    """Which windows are open, what has focus, and what the browser has highlighted.
+
+    The browser block carries the focused node's caption and file type and whether
+    the browser is set to auto hide. Every read in it is guarded, so a field that
+    could not be read is null and the block's problems list says which read failed
+    and why.
+    """
     return get_connection().send_command("ui.getState", timeout=10.0)
+
+
+def audition_sample() -> dict[str, Any]:
+    """Play whatever FL Studio's browser has highlighted.
+
+    FL previews the browser item that is already highlighted. This tool cannot choose
+    the file, because the API has no call that selects a browser item, and there is
+    no way to stop the preview through the API once it starts. That is why the reply
+    names the caption FL was pointing at: it is the only honest answer to "what did
+    it play".
+
+    Nothing here changes the project: no channel, fader, note or pattern is touched,
+    and nothing is added to the undo history. A call made while nothing is highlighted
+    is refused with a reason rather than playing whatever FL happens to have focused,
+    and a caption that cannot be read is reported instead of guessed.
+    """
+    return get_connection().send_command("ui.previewBrowser", timeout=10.0)
 
 
 def show_window(index: int) -> dict[str, Any]:
@@ -194,6 +217,10 @@ def register_project_tools(mcp: FastMCP) -> None:
             snap_mode, form_caption: the current snap setting and the focused
                                      window's caption
             selected_channel: which Channel Rack channel is selected
+            browser: the highlighted browser node's caption and file type, whether
+                     the browser auto hides, and a problems list naming any read that
+                     failed. caption is null when nothing is highlighted, because FL
+                     answers an empty caption then and an empty name is not a name.
         """
         return get_ui_state()
 
@@ -241,3 +268,33 @@ def register_project_tools(mcp: FastMCP) -> None:
             quantize: Quantize note starts and lengths to the project grid.
         """
         return set_channel_properties(index, pitch=pitch, quantize=quantize)
+
+
+def register_browser_tools(mcp: FastMCP) -> None:
+    """Register the browser audition tool.
+
+    Kept in its own register function because it is a browser feature rather than a
+    playlist or a channel property, and because the browser's surface is deliberately
+    small: reading what is highlighted, and auditioning it. Nothing here navigates the
+    browser, changes tabs or expands nodes.
+    """
+
+    @mcp.tool()
+    def fl_audition_sample() -> dict:
+        """Play whatever file FL Studio's browser has highlighted.
+
+        This is auditioning, not loading. FL previews the browser item that is
+        already highlighted; this tool cannot choose the file, because the API has no
+        call that selects a browser item, and there is no way to stop the preview
+        once it starts. The reply names the caption FL was pointing at, so the caller
+        can see what was auditioned.
+
+        It changes no project state: no channel, fader, note or pattern is touched,
+        and nothing is added to the undo history. Highlight a file in FL's browser
+        first; with nothing highlighted the call is refused with a reason rather than
+        playing whatever happens to be focused.
+
+        To find a file by name, use fl_find_samples, which searches the folders on
+        disk because FL's browser cannot be searched through its API.
+        """
+        return audition_sample()

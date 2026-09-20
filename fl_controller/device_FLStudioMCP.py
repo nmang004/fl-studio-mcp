@@ -228,6 +228,8 @@ def _route_command(action: str, params: dict) -> dict:
         return handle_ui_show_window(params)
     elif action == "ui.hideWindow":
         return handle_ui_hide_window(params)
+    elif action == "ui.previewBrowser":
+        return handle_ui_preview_browser(params)
 
     # Channel properties
     elif action == "channels.getProperties":
@@ -1219,11 +1221,85 @@ def handle_arrangement_add_marker(params: dict) -> dict:
     return {"time": int(time), "name": name}
 
 
+def _read_focused_caption() -> tuple:
+    """The browser node's caption, and a reason when it could not be read.
+
+    An empty caption is FL's way of saying nothing is selected in the browser, which
+    is a different answer from a file whose name FL did not give. Both would arrive
+    here as an empty string, so "nothing selected" is reported as None.
+
+    The reason is returned rather than raised, so one failing read cannot cost the
+    caller the rest of the state reply.
+    """
+    try:
+        caption = ui.getFocusedNodeCaption()
+    except Exception as error:
+        return None, f"ui.getFocusedNodeCaption failed: {error}"
+    return (caption or None), None
+
+
+def _read_browser_file_type() -> tuple:
+    """The focused node's file type, and a reason when it could not be read.
+
+    Read through getattr rather than called directly, so a ui module that does not
+    carry this function reports its own field as unknown with a reason instead of
+    turning the whole state read into an AttributeError. The file type constants are
+    not in the stubs, so the number is passed through as FL gives it.
+    """
+    reader = getattr(ui, "getFocusedNodeFileType", None)
+    if reader is None:
+        return None, "ui.getFocusedNodeFileType is not available in this FL Studio"
+    try:
+        return reader(), None
+    except Exception as error:
+        return None, f"ui.getFocusedNodeFileType failed: {error}"
+
+
+def _read_browser_auto_hide() -> tuple:
+    """Whether the browser is set to auto hide, and a reason when it could not be read.
+
+    Guarded and read the same way as the file type, for the same reason.
+    """
+    reader = getattr(ui, "isBrowserAutoHide", None)
+    if reader is None:
+        return None, "ui.isBrowserAutoHide is not available in this FL Studio"
+    try:
+        return bool(reader()), None
+    except Exception as error:
+        return None, f"ui.isBrowserAutoHide failed: {error}"
+
+
+def _browser_state() -> dict:
+    """What the browser has highlighted, and which reads failed.
+
+    Every read is guarded the way the rest of this handler guards its readers: one
+    failing call costs its own field and nothing else. A failed read leaves its field
+    None and names itself in problems, so a caller can tell "nothing is highlighted"
+    apart from "the caption could not be read".
+    """
+    caption, caption_problem = _read_focused_caption()
+    file_type, file_type_problem = _read_browser_file_type()
+    auto_hide, auto_hide_problem = _read_browser_auto_hide()
+    problems = [
+        problem
+        for problem in (caption_problem, file_type_problem, auto_hide_problem)
+        if problem
+    ]
+    return {
+        "caption": caption,
+        "file_type": file_type,
+        "auto_hide": auto_hide,
+        "problems": problems,
+    }
+
+
 def handle_ui_get_state() -> dict:
     """Which FL windows are open, and what has focus.
 
     This is a read, and it is what tells a caller whether the piano roll is even
-    open before it tries to write into one.
+    open before it tries to write into one. It carries the browser block too,
+    because the focused browser node is the one thing the API will say about what
+    is highlighted, and it is what an audition plays.
     """
     windows = {}
     for index, name in WINDOW_NAMES.items():
@@ -1261,6 +1337,8 @@ def handle_ui_get_state() -> dict:
         )
     except Exception:
         state["selected_channel"] = None
+
+    state["browser"] = _browser_state()
     return state
 
 
@@ -1276,6 +1354,64 @@ def handle_ui_hide_window(params: dict) -> dict:
     index = _require(params, "index", "ui.hideWindow")
     ui.hideWindow(int(index))
     return {"index": int(index), "visible": bool(ui.getVisible(int(index)))}
+
+
+def handle_ui_preview_browser(params: dict) -> dict:
+    """Play whatever the browser has highlighted, and report what that was.
+
+    ui.previewBrowserMenuItem() plays the highlighted browser item and returns
+    nothing, so the caption is read first and carried in the reply: without it the
+    caller has no way to know what was played. Nothing here chooses a file, because
+    the API cannot, and there is no call that stops a preview once it starts.
+
+    The handler changes no project state, so it is not in MUTATING_ACTIONS and is not
+    gated on safeToEdit: refusing to play a sample while FL is busy would be a
+    refusal of a read.
+    """
+    caption, problem = _read_focused_caption()
+    if problem is not None:
+        return {
+            "success": False,
+            "previewed": False,
+            "caption": None,
+            "error": (
+                "the browser's highlighted caption could not be read, so the audition "
+                f"was not attempted: {problem}"
+            ),
+        }
+    if caption is None:
+        return {
+            "success": False,
+            "previewed": False,
+            "caption": None,
+            "error": (
+                "nothing is highlighted in FL Studio's browser, so there is nothing to "
+                "audition. Highlight a file in the browser first: this command plays "
+                "whatever is highlighted and cannot choose a file itself."
+            ),
+        }
+
+    try:
+        ui.previewBrowserMenuItem()
+    except Exception as error:
+        return {
+            "success": False,
+            "previewed": False,
+            "caption": caption,
+            "error": f"ui.previewBrowserMenuItem failed: {error}",
+        }
+
+    return {
+        "success": True,
+        "previewed": True,
+        "caption": caption,
+        "message": (
+            f"Asked FL Studio to preview the highlighted browser item {caption!r}. FL "
+            "plays whatever is highlighted, so that caption is what was auditioned; "
+            "this command cannot choose the file, and the API has no way to stop the "
+            "preview."
+        ),
+    }
 
 
 def handle_channels_get_properties(params: dict) -> dict:

@@ -570,6 +570,8 @@ Recalling transposes from the key the riff was saved in to the key this project 
 | Tool | Description |
 |------|-------------|
 | `fl_find_samples` | Search the sample folders on this machine by name, format and duration |
+| `fl_audition_sample` | Play whatever FL Studio's browser has highlighted |
+| `fl_index_projects` | Read a folder of project files for tempo, meter and plugins |
 
 FL's scripting API cannot search or drive its browser, so the search happens on disk and the folders are discovered rather than assumed: the FL factory packs inside the application bundle (found by glob, so a new release year does not break it), Apple Loops, Logic, GarageBand, and your own FL data folders. `FL_STUDIO_MCP_SAMPLE_DIRS` overrides the list.
 

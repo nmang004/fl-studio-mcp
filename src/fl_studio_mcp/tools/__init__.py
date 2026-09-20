@@ -4,6 +4,7 @@ from fl_studio_mcp.tools.batch import register_batch_tools
 from fl_studio_mcp.tools.channels import register_channel_tools
 from fl_studio_mcp.tools.describe import register_describe_tools
 from fl_studio_mcp.tools.eq import register_eq_tools
+from fl_studio_mcp.tools.indexing import register_index_tools
 from fl_studio_mcp.tools.journal import register_journal_tools
 from fl_studio_mcp.tools.metering import register_metering_tools
 from fl_studio_mcp.tools.mixer import register_mixer_tools
@@ -11,7 +12,7 @@ from fl_studio_mcp.tools.patterns import register_pattern_tools
 from fl_studio_mcp.tools.piano_roll import register_piano_roll_tools
 from fl_studio_mcp.tools.plugins import register_plugin_tools
 from fl_studio_mcp.tools.presets import register_preset_tools
-from fl_studio_mcp.tools.project import register_project_tools
+from fl_studio_mcp.tools.project import register_browser_tools, register_project_tools
 from fl_studio_mcp.tools.review import register_review_tools
 from fl_studio_mcp.tools.riffs import register_riff_tools
 from fl_studio_mcp.tools.routing import register_routing_tools
@@ -42,4 +43,6 @@ __all__ = [
     "register_sample_tools",
     "register_snapshot_tools",
     "register_preset_tools",
+    "register_browser_tools",
+    "register_index_tools",
 ]
