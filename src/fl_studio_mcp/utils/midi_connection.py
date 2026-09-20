@@ -108,9 +108,18 @@ class MIDIConnection:
                 target_port = port_name
                 break
 
-        # If no specific port found, use the first available
+        # Never fall back to the first available port. On a typical machine that
+        # is real hardware, so the trigger note (note 127 at full velocity, with
+        # no note off) would be sent to the user's keyboard, synth or audio
+        # interface instead of to FL Studio.
         if target_port is None:
-            target_port = output_ports[0]
+            self._error = (
+                "No virtual MIDI port found. On macOS enable the IAC Driver in "
+                "Audio MIDI Setup; on Windows install and run loopMIDI and "
+                "create a port. Available ports: "
+                f"{', '.join(output_ports)}"
+            )
+            return False
 
         try:
             self._port = mido.open_output(target_port)
