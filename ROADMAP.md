@@ -3,10 +3,13 @@
 This fork rebuilds the upstream server into a reliable, FL-native music production
 tool. It is the spec that per-phase implementation plans argue from.
 
-**Status:** Phases 0 through 5 are done, verified live where the phase called for it.
+**Status:** Phases 0 through 6 are done, verified live where the phase called for it.
 The per-phase plans in `docs/plans/` record what each one delivered and which
-assumptions the live environment corrected. Phase 6 is not started, and the tabled work
-below stays tabled.
+assumptions the live environment corrected. The tabled work below stays tabled.
+
+What remains is depth rather than breadth: the live checks still unticked in
+`docs/SMOKE_TEST.md`, cherry-picking the isolated fixes back to upstream, and
+deciding whether 101 tools is the right surface to expose.
 
 **Source of truth for the FL Studio API:** the official stubs package
 (`fl-studio-api-stubs>=37.0`, already a dev dependency). Every API claim in this
