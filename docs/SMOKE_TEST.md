@@ -253,6 +253,61 @@ Note the date, the FL Studio version, the API version, and any item that failed,
 in the commit message or the pull request description. A smoke test with no record
 is a rumour.
 
+### 2026-09-19, Phase 6
+
+FL Studio 2026, Producer Edition v26.1.6 build 5406, API version 45, macOS 26,
+Apple silicon. The project used for these runs was a fresh one; nothing of the
+producer's was changed except one fader, which was restored in the same run.
+
+Passed, live:
+
+- Riff capture: four notes read out of channel 0's piano roll with their expression
+  intact (`slide` survived), the key recorded as absent because snap to scale is off,
+  tempo 130.0, and the instrument taken from the channel. Recall then refused to
+  transpose, naming the reason and the way round it, which is the behaviour that keeps
+  it from guessing a key.
+- Plugin identity: channel 4 reports `name: FLEX` and `user_name: 808 Astronomic`,
+  which is the distinction the old argument order could not express. A sampler channel
+  answers that it is not a plugin rather than failing the command.
+- Plugin parameter paging: `total: 45, returned: 3, skipped_unnamed: 0` with real
+  names and display strings, after the call forms were corrected.
+- `plugins.probeCalls`, added for this: `getParamValueString` accepts at most four
+  keyword arguments, so the stub's `pickupMode` does not exist at runtime, and
+  `setParamValue` needs five positional arguments with its first named `paramValue`.
+  Passing `pickupMode` had emptied a parameter page while the handler reported success.
+- Snapshot round trip: snapshot taken, Insert 1 nudged from 0.8 to 0.62, the diff
+  reported exactly one change and named it, the restore planned one
+  `mixer.setTrackVolume` move and applied it as one batch named `MCP: restore snapshot`,
+  the fader came back to 0.8, and the diff then read "Nothing changed".
+- Sample search: 12,966 files examined across the six discovered roots in 1.3 seconds,
+  5,190 of them the FL factory packs in 0.54 seconds, and every sampled factory `.wav`
+  reported as vorbis in a RIFF container with no duration and a reason.
+- `.flp` reader: five autosaved projects read as 130.0 BPM, 4/4, PPQ 96, five channels,
+  build 5406, matching what the running project reports.
+
+Caused during this phase, and since fixed:
+
+- `patterns.findFirstNextEmptyPat` **froze FL Studio twice**, costing two sessions. The
+  first time it was called with flags 0, which the stubs say also prompts for a pattern
+  name; the second time with the prompt flag set and the documented `None` return no
+  longer used. It froze identically, so the prompt was not the cause and the function is
+  unusable on this build. Pattern creation and pattern cloning now refuse, with the
+  corrected call kept behind one constant and tested, and the roadmap and README record
+  the finding.
+
+Could not be run:
+
+- Riff recall into a pattern, because the only pattern's piano roll holds the
+  producer's four notes and the tool correctly refuses to clear a piano roll that is not
+  empty. The write path is covered by tests against the fake and by the note tools that
+  share it, but the riff round trip itself has not been played.
+- Preset recall and morph, a template applied to real tracks, the browser reads and an
+  audition, and the project index tool. All are covered by tests; none has been run
+  against FL.
+- The journal read after a session of edits, for the same reason: no session of edits
+  has happened since it was built.
+- Windows, and Windows with a OneDrive-redirected Documents folder. No machine.
+
 ### 2026-09-19, Phase 5
 
 FL Studio 2026, Producer Edition v26.1.6 build 5406, API version 45, macOS 26,

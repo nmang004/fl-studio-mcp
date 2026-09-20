@@ -1189,10 +1189,9 @@ the test double had the wrong signature and the wrong return type and the suite 
       the end of the payload.
 - [x] Pattern slot creation is refused, with the two freezes recorded in the roadmap,
       the README and the tool description.
-- [ ] All eight roadmap features ship, each with at least one tool, a README row, and
-      tests. Structure critique, templates, browser audition and the project index tool
-      were still in progress when this was written.
-- [ ] The live runs are recorded in `docs/SMOKE_TEST.md`, including the two freezes and
+- [x] All eight roadmap features ship, each with at least one tool, a README row and
+      tests. 101 tools, 1075 tests.
+- [x] The live runs are recorded in `docs/SMOKE_TEST.md`, including the two freezes and
       everything that could not be run.
 - [ ] `pytest` green and `ruff check .` clean with no FL Studio running, and a clean
       clone installs with `uv sync --dev --locked` and passes.
