@@ -644,7 +644,8 @@ def register_snapshot_tools(mcp: FastMCP) -> None:
         """Put the settings from a snapshot back.
 
         Reports first and acts only when asked. Every move goes through one batch, so
-        one undo press may not reverse a large batch, which was measured on 2026-09-19 when a 21 command batch survived fl_undo.
+        one undo press may not reverse a large batch. Measured on
+        2026-09-19: a 21 command batch survived fl_undo.
 
         It moves values back and deletes nothing. Something that appeared since the
         snapshot is reported rather than removed, and something that has gone is
