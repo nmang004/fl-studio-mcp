@@ -351,7 +351,8 @@ def _write(
         result["error"] = batch_result.get("error") or "The preset batch did not complete."
         return result
     result["message"] = (
-        f"Wrote {len(commands)} parameter(s) from {what}. One undo reverses it."
+        f"Wrote {len(commands)} parameter(s) from {what}, in one batch. Undo may need "
+        "several steps."
     )
     return result
 

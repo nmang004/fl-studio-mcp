@@ -154,8 +154,8 @@ def apply_template(
         return result
 
     result["message"] = (
-        f"Applied {len(plan['commands'])} move(s) as {BATCH_NAME!r}. One undo reverses "
-        "the template."
+        f"Applied {len(plan['commands'])} move(s) as {BATCH_NAME!r}, in one batch. "
+        "Undo may need several steps."
     )
     result["message"] += _left_alone_sentence(plan["skipped"])
     return result

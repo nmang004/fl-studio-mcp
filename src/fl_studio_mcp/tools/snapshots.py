@@ -274,7 +274,7 @@ def restore_snapshot(
         result["message"] = (
             f"{len(plan['commands'])} setting(s) differ. Nothing has been changed: "
             "pass apply=True to make the moves, which go through one batch so one "
-            "undo reverses them."
+            "undo may need several steps."
         )
         return result
 
@@ -287,7 +287,7 @@ def restore_snapshot(
         return result
     result["message"] = (
         f"Restored {len(plan['commands'])} setting(s) from {stored.get('id')}. One undo "
-        "reverses the whole restore."
+        "may need several steps for a batch this size."
     )
     return result
 
@@ -644,7 +644,7 @@ def register_snapshot_tools(mcp: FastMCP) -> None:
         """Put the settings from a snapshot back.
 
         Reports first and acts only when asked. Every move goes through one batch, so
-        a single undo reverses the whole restore.
+        one undo press may not reverse a large batch, which was measured on 2026-09-19 when a 21 command batch survived fl_undo.
 
         It moves values back and deletes nothing. Something that appeared since the
         snapshot is reported rather than removed, and something that has gone is

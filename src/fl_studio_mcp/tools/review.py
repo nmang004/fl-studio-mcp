@@ -146,7 +146,7 @@ def gain_staging(
         return result
 
     result["message"] = (
-        f"Moved {len(moves)} fader(s). One undo reverses the whole pass."
+        f"Moved {len(moves)} fader(s), in one batch. Undo may need several steps."
     )
     return result
 
