@@ -353,8 +353,24 @@ Structure critique, after it learned to read marker times from the piano roll sa
   which suggests they expose piano roll or pattern markers rather than arrangement
   timeline markers. Marker times are read from the stubs and the plumbing works, but the
   feature does not currently produce arrangement section bars, and nothing should claim
-  otherwise. Investigating which markers that list does hold is the next step, and it
-  needs a live session.
+  otherwise.
+
+  The reply carried `markers_error: null` and `markers: []`, so the accessors were found
+  and reported nothing rather than being missing. Two explanations remain, and one
+  experiment separates them. The stub's `Marker` documents `mode` values of 8 and 12
+  with `tsnum`, `tsden`, `scale_root` and `scale_helper`, which are the playlist's time
+  signature and key markers, so this API looks like it is meant for those. Placing a
+  **time signature marker** in the playlist and running the request again tells us which
+  explanation is true:
+
+  * a non-zero count means the accessors work and report a narrower set of markers than
+    the arrangement's, and the feature can be rebuilt around that set;
+  * a count that stays at zero with a marker that certainly exists means the accessors
+    are a silent no-op on this build, which is the failure mode this API is known for,
+    and the feature should be deleted rather than carried.
+
+  Until that runs, treat marker times as plumbing that executes and reports honestly,
+  not as a feature that reads the arrangement.
 
 Could not be run:
 
