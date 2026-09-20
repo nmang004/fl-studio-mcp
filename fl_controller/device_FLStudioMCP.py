@@ -101,9 +101,11 @@ def execute_pending_command():
         action = command.get("action", "")
         params = command.get("params", {})
 
-        # Execute command and get result
+        # Execute command and get result. dispatch_command reports a failure by
+        # returning an "error" key, so merging it under success=True told the
+        # caller every unknown action had worked.
         result = dispatch_command(action, params)
-        response = {"success": True, **result}
+        response = {"success": "error" not in result, **result}
 
     except json.JSONDecodeError as e:
         response["error"] = f"Invalid JSON in command file: {e}"
