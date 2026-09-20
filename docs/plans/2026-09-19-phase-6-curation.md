@@ -1193,6 +1193,11 @@ the test double had the wrong signature and the wrong return type and the suite 
       tests. 101 tools, 1075 tests.
 - [x] The live runs are recorded in `docs/SMOKE_TEST.md`, including the two freezes and
       everything that could not be run.
+- [x] Marker times are read from the piano roll sandbox, which is the only sandbox that
+      exposes them, with the arrangement still the source of names and count, a mismatch
+      between the two reported rather than smoothed over, and no bar position ever
+      guessed. Live verification of the times themselves still needs an arrangement with
+      markers and a focused piano roll window.
 - [x] `pytest` green and `ruff check .` clean with no FL Studio running, and a clean
       clone installs with `uv sync --dev --locked` and passes. 1075 tests, 101 tools.
 - [ ] A riff can be saved, found and recalled transposed into the project's key, with

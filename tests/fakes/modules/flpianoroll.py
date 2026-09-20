@@ -7,13 +7,19 @@ and `flpianoroll` does not exist in the controller sandbox.
 flpianoroll.Note has sixteen properties. All of them are present, because Phase 4
 writes expression through them and this fake is the only place that work can be
 tested without a human at the keyboard.
+
+Markers are here too. `arrangement.getMarkers` in the controller sandbox can read a
+marker's name and not its time, and flpianoroll is the only sandbox where a time can
+be read, so this is where the structure critique gets one. The fake models the stubs
+(markerCount, getMarker, Marker.name, Marker.time); the stubs are not the runtime, so
+the script probes for the accessors before using them.
 """
 
 from __future__ import annotations
 
 from types import ModuleType
 
-from tests.fakes.project import FakeProject, Note
+from tests.fakes.project import FakeProject, Marker, Note
 
 
 def build(project: FakeProject) -> ModuleType:
@@ -72,6 +78,24 @@ def build(project: FakeProject) -> ModuleType:
             """The region the user highlighted, as (start, end) in ticks."""
             return self._project.timeline_selection
 
+        @property
+        def markerCount(self) -> int:
+            """How many markers this sandbox sees.
+
+            The stubs define markerCount and getMarker on Score, and Marker carries a
+            name and a time in ticks. Whether the running piano roll sandbox has them
+            is a different question that only a live FL Studio can answer, which is
+            why the script probes for them and reports their absence rather than
+            assuming them. This fake models the stubs, so a live disagreement shows up
+            as a mismatch against the arrangement rather than as a silent zero.
+            """
+            return len(self._project.piano_roll_markers)
+
+        def getMarker(self, index: int) -> Marker:
+            if not 0 <= index < len(self._project.piano_roll_markers):
+                raise IndexError(f"marker index {index} out of range")
+            return self._project.piano_roll_markers[index]
+
         def getNextFreeGroupIndex(self):
             """The next free group index, advancing so two groups are not one.
 
@@ -82,6 +106,7 @@ def build(project: FakeProject) -> ModuleType:
             return self._project.group_index
 
     module.Note = Note
+    module.Marker = Marker
     module.score = _Score(project)
     module.setHasSeenWelcome = lambda: None
 

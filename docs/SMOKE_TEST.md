@@ -320,6 +320,20 @@ Found during that run, and worth knowing:
 - `fl_audition_sample` is still unrun: nothing was highlighted in FL's browser, and the
   tool correctly refused to claim it had played something.
 
+Structure critique, after it learned to read marker times from the piano roll sandbox:
+
+- The tool ran live and reported `marker_times_source: not_needed`, no sections, and two
+  informational findings: the arrangement has no markers, so there is no structure to
+  read, and the meter could not be read so bars would be counted in 4/4 as an assumption
+  rather than a measurement. Both are the honest answers for this project.
+- The marker time path itself is therefore **not exercised live**. The piano roll request
+  did not answer during that run, which is why the meter came back unavailable: that path
+  needs a focused piano roll window and the script to run. What is verified is that its
+  absence produces a stated assumption and no invented bar positions.
+- Confirming the two sandboxes share a timeline still needs an arrangement with two or
+  three markers drawn at known bars and a piano roll window open. Until that happens,
+  treat marker times as read but unverified against a live arrangement.
+
 Could not be run:
 
 - Riff recall into a pattern, because the only pattern's piano roll holds the

@@ -83,6 +83,12 @@ NOTE_RANGES = {
     "repeats": (0, 14),
 }
 
+# The score members a marker read needs, probed before use. The stubs define all
+# three (flpianoroll/__score.py and __marker.py), which is what makes the read worth
+# attempting; the probe is what makes its absence a reported fact rather than a lost
+# report. See _has_marker_accessors.
+MARKER_ACCESSORS = ("markerCount", "getMarker")
+
 
 def _write_json(path, data):
     """Write JSON to the target file directly, ending with a newline.
@@ -246,6 +252,158 @@ def _handle_get_context(request):
     }
 
 
+def _read_property(owner, name):
+    """One property of an FL object, as (value, error text).
+
+    Every guarded read here goes through this, so a property that raises costs its
+    own field and nothing else. The controller's arrangement reader guards each
+    marker name the same way, for the same reason: one unreadable marker must not
+    lose the rest of the arrangement.
+    """
+    try:
+        return getattr(owner, name), None
+    except Exception as error:
+        return None, "%s: %s" % (type(error).__name__, error)
+
+
+def _ticks(value):
+    """A marker time as a whole number of ticks.
+
+    bool is an int in Python, and a marker whose time read back as True would
+    otherwise be reported as tick 1, which is a position no producer placed.
+    """
+    if value is None or isinstance(value, bool):
+        raise TypeError("time is %r, which is not a tick position" % (value,))
+    return int(value)
+
+
+def _marker_entry(marker, index):
+    """One marker as a reply entry, reading each property on its own.
+
+    A marker whose name or time cannot be read keeps its index, reports None for
+    that field, and carries the reason beside it, so one broken marker does not
+    lose the markers after it.
+    """
+    entry = {"index": index, "name": None, "time": None}
+
+    name, name_error = _read_property(marker, "name")
+    if name_error:
+        entry["name_error"] = name_error
+    else:
+        entry["name"] = name
+
+    time, time_error = _read_property(marker, "time")
+    if time_error is None:
+        try:
+            time = _ticks(time)
+        except Exception as error:
+            time_error = "%s: %s" % (type(error).__name__, error)
+    if time_error:
+        entry["time_error"] = time_error
+    else:
+        entry["time"] = time
+    return entry
+
+
+def _has_marker_accessors(score):
+    """Whether the score object carries the marker readers, probed and not assumed.
+
+    The stubs define markerCount, getMarker and Marker.time, so the names are not a
+    guess about what the API ought to look like. Whether the sandbox FL is actually
+    running has them is a different question: a stub is documentation, not a
+    measurement, and this project has twice shipped a fake that agreed with the code
+    instead of with FL. getattr is used rather than hasattr because a property that
+    raises something other than AttributeError propagates out of hasattr, and a
+    sandbox that cannot read a marker count is the case this exists to report.
+    """
+    for name in MARKER_ACCESSORS:
+        try:
+            getattr(score, name)
+        except Exception:
+            return False
+    return True
+
+
+def _handle_get_markers(request):
+    """Report the piano roll's markers, and the project's key and meter with them.
+
+    flpianoroll.score is the only place a marker's time can be read. The controller
+    sandbox, which owns the arrangement, has no marker time reader at all, so
+    arrangement.getMarkers reports a name and a null time for every marker. This
+    action is that read, and it is read only: nothing here writes to the score.
+
+    The key and meter travel with the markers because the structure critique needs
+    both and one script run answers both. Asking in two requests would spend a second
+    keystroke and a second wait on data this run already has.
+
+    What comes back is the marker list as this sandbox sees it, in this sandbox's
+    index order, with times in ticks. Whether that list is the arrangement's list is
+    not something either sandbox can check, because they cannot see each other, so
+    the caller compares the counts and reports a disagreement rather than assuming
+    the two views line up.
+
+    This handler does not raise when markers cannot be read. A sandbox without the
+    accessors, or a marker whose properties fail, comes back with whatever could be
+    read and a sentence naming what could not.
+    """
+    score = flp.score
+    ppq, _ = _read_property(score, "PPQ")
+    root_note, _ = _read_property(score, "snap_root_note")
+    scale_helper, _ = _read_property(score, "snap_scale_helper")
+    tsnum, _ = _read_property(score, "tsnum")
+    tsden, _ = _read_property(score, "tsden")
+
+    reply = {
+        "notes_added": 0,
+        "notes_deleted": 0,
+        "markers": None,
+        "markers_error": None,
+        "root_note": root_note,
+        "scale_helper": scale_helper,
+        "tsnum": tsnum,
+        "tsden": tsden,
+        "ppq": ppq,
+    }
+
+    if not _has_marker_accessors(score):
+        reply["markers_error"] = (
+            "This piano roll sandbox does not expose markers: flpianoroll.score has "
+            "no readable %s, so a marker's time cannot be read here."
+            % " and no readable ".join(MARKER_ACCESSORS)
+        )
+        return reply
+
+    count, count_error = _read_property(score, "markerCount")
+    if count_error:
+        reply["markers_error"] = "The piano roll reported no marker count: %s" % count_error
+        return reply
+    try:
+        count = _ticks(count)
+    except Exception as error:
+        reply["markers_error"] = (
+            "The piano roll reported a marker count that is not a number: %s: %s"
+            % (type(error).__name__, error)
+        )
+        return reply
+
+    markers = []
+    for index in range(max(0, count)):
+        try:
+            marker = score.getMarker(index)
+        except Exception as error:
+            markers.append({
+                "index": index,
+                "name": None,
+                "time": None,
+                "error": "%s: %s" % (type(error).__name__, error),
+            })
+            continue
+        markers.append(_marker_entry(marker, index))
+
+    reply["markers"] = markers
+    return reply
+
+
 def _handle_get_state(request):
     """Export the state and change nothing.
 
@@ -263,6 +421,7 @@ HANDLERS = {
     "delete_notes": _handle_delete_notes,
     "get_state": _handle_get_state,
     "get_context": _handle_get_context,
+    "get_markers": _handle_get_markers,
 }
 
 
@@ -385,6 +544,11 @@ def apply(form=None):
         "tsnum": lead.get("tsnum"),
         "tsden": lead.get("tsden"),
         "context_ppq": lead.get("ppq"),
+        # The marker list the get_markers handler read, and its sentence when the
+        # sandbox could not read one. Both are echoed per response as well, so a
+        # caller that queued more than one request can match the answer it wants.
+        "markers": lead.get("markers"),
+        "markers_error": lead.get("markers_error"),
         "notes_deleted": sum(response["notes_deleted"] for response in responses),
         # Every response, each with its own id, so a caller that queued more than
         # one request can match the answer it wants instead of reading whichever
@@ -403,6 +567,8 @@ def apply(form=None):
                 "tsnum": response.get("tsnum"),
                 "tsden": response.get("tsden"),
                 "ppq": response.get("ppq"),
+                "markers": response.get("markers"),
+                "markers_error": response.get("markers_error"),
                 "error": response.get("error"),
             }
             for response in responses
