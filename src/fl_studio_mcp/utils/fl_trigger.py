@@ -49,11 +49,18 @@ class FLStudioTrigger:
                 keystroke "y" using {command down, option down}
             end tell
             '''
-            subprocess.run(
+            completed = subprocess.run(
                 ["osascript", "-e", script],
                 capture_output=True,
                 timeout=10,
             )
+            if completed.returncode != 0:
+                # Most commonly Accessibility permission has not been granted,
+                # in which case System Events refuses to send the keystroke.
+                # Returning True regardless reported success for a keystroke
+                # that was never delivered, so the notes never arrived and
+                # nothing said why.
+                return self._trigger_macos_pynput()
             return True
         except subprocess.TimeoutExpired:
             return False
