@@ -372,6 +372,8 @@ def _route_command(action: str, params: dict) -> dict:
         return handle_plugins_is_valid(params)
     elif action == "plugins.getName":
         return handle_plugins_get_name(params)
+    elif action == "plugins.probeCalls":
+        return handle_plugins_probe_calls(params)
     elif action == "plugins.getParamCount":
         return handle_plugins_get_param_count(params)
     elif action == "plugins.getParams":
@@ -2226,6 +2228,23 @@ def handle_channels_set_step_sequence(params: dict) -> dict:
 # Read from stubs v37.0.1, plugins/__init__.py.
 
 
+# Two calls here are positional because the running build leaves no choice, and the
+# probe action `plugins.probeCalls` is what established it on 2026-09-19:
+#
+#   getParamValueString(paramIndex, index, slotIndex, useGlobalIndex) is four
+#   parameters at runtime. The stub declares a fifth, pickupMode, and passing it by
+#   keyword raises "function takes at most 4 keyword arguments". That is what emptied
+#   a parameter page while the handler still reported success.
+#
+#   setParamValue(paramValue, paramIndex, index, slotIndex, useGlobalIndex) is five
+#   parameters at runtime and names its first one paramValue, not value, so a keyword
+#   call raises "function missing required argument 'paramValue'". Five positional
+#   arguments work, so that is how it is called.
+#
+# The stubs are the best documentation this API has and they are not the signature the
+# runtime enforces. Asking the build, not the stub, is what settled it.
+
+
 def handle_plugins_is_valid(params: dict) -> dict:
     """Check if plugin exists at location."""
     index = params.get("index", 0)
@@ -2315,8 +2334,8 @@ def handle_plugins_get_params(params: dict) -> dict:
                 useGlobalIndex=use_global_here,
             )
             value_str = plugins.getParamValueString(
-                paramIndex=i, index=index, slotIndex=slot_here,
-                pickupMode=midi.PIM_None, useGlobalIndex=use_global_here,
+                paramIndex=i, index=index,
+                slotIndex=slot_here, useGlobalIndex=use_global_here,
             )
 
             param_list.append({
@@ -2359,12 +2378,9 @@ def handle_plugins_get_param_value(params: dict) -> dict:
             useGlobalIndex=True,
         )
         value_str = plugins.getParamValueString(
-            paramIndex=param_index,
-            index=plugin_index,
-            slotIndex=slot_index,
-            pickupMode=midi.PIM_None,
-            useGlobalIndex=True,
-        )
+                paramIndex=param_index, index=plugin_index,
+                slotIndex=slot_index, useGlobalIndex=True,
+            )
     else:
         name = plugins.getParamName(
             paramIndex=param_index,
@@ -2379,12 +2395,9 @@ def handle_plugins_get_param_value(params: dict) -> dict:
             useGlobalIndex=use_global,
         )
         value_str = plugins.getParamValueString(
-            paramIndex=param_index,
-            index=plugin_index,
-            slotIndex=-1,
-            pickupMode=midi.PIM_None,
-            useGlobalIndex=use_global,
-        )
+                paramIndex=param_index, index=plugin_index,
+                slotIndex=-1, useGlobalIndex=use_global,
+            )
 
     return {
         "index": param_index,
@@ -2410,13 +2423,8 @@ def handle_plugins_set_param_value(params: dict) -> dict:
             useGlobalIndex=True,
         )
         plugins.setParamValue(
-            value=value,
-            paramIndex=param_index,
-            index=plugin_index,
-            slotIndex=slot_index,
-            pickupMode=midi.PIM_None,
-            useGlobalIndex=True,
-        )
+                value, param_index, plugin_index, slot_index, True
+            )
         new_value = plugins.getParamValue(
             paramIndex=param_index,
             index=plugin_index,
@@ -2424,12 +2432,9 @@ def handle_plugins_set_param_value(params: dict) -> dict:
             useGlobalIndex=True,
         )
         value_str = plugins.getParamValueString(
-            paramIndex=param_index,
-            index=plugin_index,
-            slotIndex=slot_index,
-            pickupMode=midi.PIM_None,
-            useGlobalIndex=True,
-        )
+                paramIndex=param_index, index=plugin_index,
+                slotIndex=slot_index, useGlobalIndex=True,
+            )
     else:
         name = plugins.getParamName(
             paramIndex=param_index,
@@ -2438,13 +2443,8 @@ def handle_plugins_set_param_value(params: dict) -> dict:
             useGlobalIndex=use_global,
         )
         plugins.setParamValue(
-            value=value,
-            paramIndex=param_index,
-            index=plugin_index,
-            slotIndex=-1,
-            pickupMode=midi.PIM_None,
-            useGlobalIndex=use_global,
-        )
+                value, param_index, plugin_index, -1, use_global
+            )
         new_value = plugins.getParamValue(
             paramIndex=param_index,
             index=plugin_index,
@@ -2452,12 +2452,9 @@ def handle_plugins_set_param_value(params: dict) -> dict:
             useGlobalIndex=use_global,
         )
         value_str = plugins.getParamValueString(
-            paramIndex=param_index,
-            index=plugin_index,
-            slotIndex=-1,
-            pickupMode=midi.PIM_None,
-            useGlobalIndex=use_global,
-        )
+                paramIndex=param_index, index=plugin_index,
+                slotIndex=-1, useGlobalIndex=use_global,
+            )
 
     return {
         "name": name,
@@ -2518,6 +2515,72 @@ def handle_plugins_prev_preset(params: dict) -> dict:
         plugins.prevPreset(index=index, slotIndex=-1, useGlobalIndex=use_global)
 
     return {"plugin_name": plugin_name}
+
+
+def handle_plugins_probe_calls(params: dict) -> dict:
+    """Try one plugin call each way, and report what FL accepts.
+
+    A live surprise put this here. Passing plugin arguments by keyword looks strictly
+    safer than passing them positionally, and for getPluginName it is: FL accepted
+    keywords and returned the plugin's own name. But a parameter read by keyword
+    returned no parameters at all while reporting success, which means something in
+    that call raised and was swallowed by the handler's guard.
+
+    So this asks the running build which form each function accepts, instead of
+    assuming either way. Read only: it never writes a parameter.
+    """
+    index = params.get("index", 0)
+    slot_index = params.get("slot_index", -1)
+    use_global = params.get("use_global", True)
+    param_index = params.get("param_index", 0)
+    attempts = []
+
+    def attempt(label, call):
+        try:
+            attempts.append({"call": label, "result": call(), "error": None})
+        except Exception as error:
+            attempts.append({
+                "call": label,
+                "result": None,
+                "error": "%s: %s" % (type(error).__name__, error),
+            })
+
+    attempt("getParamName(positional)",
+            lambda: plugins.getParamName(param_index, index, slot_index, use_global))
+    attempt("getParamName(keyword)",
+            lambda: plugins.getParamName(paramIndex=param_index, index=index,
+                                        slotIndex=slot_index, useGlobalIndex=use_global))
+    attempt("getParamValue(positional)",
+            lambda: plugins.getParamValue(param_index, index, slot_index, use_global))
+    attempt("getParamValue(keyword)",
+            lambda: plugins.getParamValue(paramIndex=param_index, index=index,
+                                          slotIndex=slot_index, useGlobalIndex=use_global))
+    attempt("getParamValueString(positional)",
+            lambda: plugins.getParamValueString(param_index, index, slot_index, use_global))
+    attempt("getParamValueString(keyword, no pickupMode)",
+            lambda: plugins.getParamValueString(paramIndex=param_index, index=index,
+                                                slotIndex=slot_index))
+    attempt("getParamValueString(keyword, with the stub's pickupMode)",
+            lambda: plugins.getParamValueString(
+                paramIndex=param_index, index=index,
+                slotIndex=slot_index, useGlobalIndex=use_global,
+            ))
+    attempt("getPluginName(keyword)",
+            lambda: plugins.getPluginName(index=index, slotIndex=slot_index,
+                                          userName=False, useGlobalIndex=use_global))
+    # The writer, with the value it already holds, so every attempt is a no-op.
+    current = plugins.getParamValue(param_index, index, slot_index, use_global)
+    attempt("setParamValue(keyword, name from the stub)",
+            lambda: plugins.setParamValue(value=current, paramIndex=param_index,
+                                          index=index, slotIndex=slot_index,
+                                          useGlobalIndex=use_global))
+    attempt("setParamValue(positional)",
+            lambda: plugins.setParamValue(current, param_index, index, slot_index,
+                                          use_global))
+    attempt("getParamCount(keyword)",
+            lambda: plugins.getParamCount(index=index, slotIndex=slot_index,
+                                          useGlobalIndex=use_global))
+    return {"attempts": attempts}
 
 
 def handle_plugins_get_color(params: dict) -> dict:

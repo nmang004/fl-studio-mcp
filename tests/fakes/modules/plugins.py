@@ -119,26 +119,35 @@ def build(project: FakeProject) -> ModuleType:
         paramIndex: int,
         index: int,
         slotIndex: int = -1,
-        pickupMode: int = PIM_None,
         useGlobalIndex: bool = False,
     ) -> str:
-        """The display string. Its fourth argument is pickupMode, not the index flag."""
+        """The display string, in the four parameter form the build enforces.
+
+        The stub declares a fifth parameter, pickupMode. FL Studio 2026 build 5406
+        raises "function takes at most 4 keyword arguments" when it is passed, which is
+        what emptied a parameter page while the handler reported success.
+        """
         project.plugin_calls.append(
-            ("getParamValueString", {"pickupMode": pickupMode, "useGlobalIndex": useGlobalIndex})
+            ("getParamValueString", {"useGlobalIndex": useGlobalIndex})
         )
         return f"{getParamValue(paramIndex, index, slotIndex, useGlobalIndex):.3f}"
 
     def setParamValue(
-        value: float,
+        paramValue: float,
         paramIndex: int,
         index: int,
         slotIndex: int = -1,
-        pickupMode: int = 0,
         useGlobalIndex: bool = False,
     ) -> None:
-        """The fifth argument is pickupMode, and a scripted write wants PIM_None."""
+        """The write form the build enforces: five parameters, no pickupMode.
+
+        The stub names the first one `value` and adds a pickupMode; the runtime names
+        it `paramValue` and has no pickupMode, so a keyword call raises "function
+        missing required argument 'paramValue'". Measured with the probe action.
+        """
+        value = paramValue
         project.plugin_calls.append(
-            ("setParamValue", {"pickupMode": pickupMode, "useGlobalIndex": useGlobalIndex})
+            ("setParamValue", {"useGlobalIndex": useGlobalIndex})
         )
         if slotIndex < 0:
             project.channel(index)
