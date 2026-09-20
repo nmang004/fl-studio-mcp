@@ -1196,8 +1196,14 @@ the test double had the wrong signature and the wrong return type and the suite 
 - [x] Marker times are read from the piano roll sandbox, which is the only sandbox that
       exposes them, with the arrangement still the source of names and count, a mismatch
       between the two reported rather than smoothed over, and no bar position ever
-      guessed. Live verification of the times themselves still needs an arrangement with
-      markers and a focused piano roll window.
+      guessed.
+- [ ] Marker times produce arrangement section bars. Attempted live with two drawn
+      markers and the answer is negative: the request path works, the script replies with
+      `ppq: 96` and `meter: 4/4`, and it reports zero markers where the arrangement holds
+      two, so the critique reports a mismatch and claims no bars. The piano roll's marker
+      list is therefore not the arrangement's list on this build, and finding out which
+      markers it does hold is the next step. Until then this feature is plumbing that
+      runs, not a feature that works.
 - [x] `pytest` green and `ruff check .` clean with no FL Studio running, and a clean
       clone installs with `uv sync --dev --locked` and passes. 1075 tests, 101 tools.
 - [ ] A riff can be saved, found and recalled transposed into the project's key, with

@@ -330,9 +330,31 @@ Structure critique, after it learned to read marker times from the piano roll sa
   did not answer during that run, which is why the meter came back unavailable: that path
   needs a focused piano roll window and the script to run. What is verified is that its
   absence produces a stated assumption and no invented bar positions.
-- Confirming the two sandboxes share a timeline still needs an arrangement with two or
-  three markers drawn at known bars and a piano roll window open. Until that happens,
-  treat marker times as read but unverified against a live arrangement.
+- Confirming the two sandboxes share a timeline was attempted with two markers drawn in
+  the arrangement, `test1` and `test2`. The result is a negative one, and it is recorded
+  rather than smoothed over:
+
+  * The controller reports both markers with `time: None`, as expected, since no
+    `getMarkerTime` exists in that sandbox.
+  * The automatic trigger did not reach the piano roll script twice, waiting 8 seconds
+    and then 120 seconds with the request already queued. Running **ComposeWithLLM by
+    hand** from the piano roll scripts menu answered immediately, so the script and the
+    request format are fine and the server's keystroke delivery is what fails, which is
+    the focus and Accessibility limitation Phase 0 recorded.
+  * That reply was `success: true` with `ppq: 96` and `meter: 4/4`, so the new request
+    path executes live and the meter can now be measured instead of assumed.
+  * It also reported **zero markers**, while the arrangement holds two. The critique
+    therefore answered `marker_times_source: mismatch`, left both sections without a
+    start or a length, and invented no bar numbers. That is the designed behaviour and
+    it is now verified live.
+
+  So the honest conclusion is that the piano roll sandbox's marker list is **not** the
+  arrangement's marker list on this build: the accessors exist and report an empty list,
+  which suggests they expose piano roll or pattern markers rather than arrangement
+  timeline markers. Marker times are read from the stubs and the plumbing works, but the
+  feature does not currently produce arrangement section bars, and nothing should claim
+  otherwise. Investigating which markers that list does hold is the next step, and it
+  needs a live session.
 
 Could not be run:
 
