@@ -28,7 +28,9 @@ def register_mixer_tools(mcp: FastMCP) -> None:
 
     @mcp.tool()
     def fl_get_mixer_track_info(track: int) -> dict:
-        """Get detailed information about a specific mixer track.
+        """Get detailed information about a mixer track, which is an audio bus.
+
+        Not a Channel Rack channel. For those use fl_get_channel_info.
 
         Args:
             track: Mixer track index (0 = Master, 1-124 = insert tracks)
@@ -54,7 +56,9 @@ def register_mixer_tools(mcp: FastMCP) -> None:
 
     @mcp.tool()
     def fl_get_all_mixer_tracks(include_empty: bool = False) -> list[dict]:
-        """Get information about all mixer tracks.
+        """Get information about all mixer tracks, which are audio buses.
+
+        Not the Channel Rack. For that use fl_get_all_channels.
 
         Args:
             include_empty: If False, only returns tracks with non-default names.
@@ -70,7 +74,10 @@ def register_mixer_tools(mcp: FastMCP) -> None:
 
     @mcp.tool()
     def fl_set_track_volume(track: int, volume: float) -> str:
-        """Set the volume of a mixer track.
+        """Set the volume of a mixer track, which is an audio bus.
+
+        This is the fader the channel is routed into, not the channel's own
+        volume knob. For that use fl_set_channel_volume.
 
         Args:
             track: Mixer track index (0 = Master)
@@ -96,7 +103,9 @@ def register_mixer_tools(mcp: FastMCP) -> None:
 
     @mcp.tool()
     def fl_set_track_pan(track: int, pan: float) -> str:
-        """Set the pan position of a mixer track.
+        """Set the pan of a mixer track, which is an audio bus.
+
+        Not the channel's own pan knob. For that use fl_set_channel_pan.
 
         Args:
             track: Mixer track index (0 = Master)
@@ -127,7 +136,9 @@ def register_mixer_tools(mcp: FastMCP) -> None:
 
     @mcp.tool()
     def fl_mute_track(track: int, muted: bool | None = None) -> str:
-        """Mute or unmute a mixer track.
+        """Mute or unmute a mixer track, which is an audio bus.
+
+        Not a Channel Rack channel. For that use fl_mute_channel.
 
         Args:
             track: Mixer track index
@@ -148,7 +159,9 @@ def register_mixer_tools(mcp: FastMCP) -> None:
 
     @mcp.tool()
     def fl_solo_track(track: int, solo: bool | None = None, mode: int = 3) -> str:
-        """Solo or unsolo a mixer track.
+        """Solo or unsolo a mixer track, which is an audio bus.
+
+        Not a Channel Rack channel. For that use fl_solo_channel.
 
         Args:
             track: Mixer track index
@@ -194,7 +207,9 @@ def register_mixer_tools(mcp: FastMCP) -> None:
 
     @mcp.tool()
     def fl_set_track_name(track: int, name: str) -> str:
-        """Set the name of a mixer track.
+        """Set the name of a mixer track, which is an audio bus.
+
+        Not a Channel Rack channel. For that use fl_set_channel_name.
 
         Args:
             track: Mixer track index
@@ -213,7 +228,9 @@ def register_mixer_tools(mcp: FastMCP) -> None:
 
     @mcp.tool()
     def fl_set_track_color(track: int, red: int, green: int, blue: int) -> str:
-        """Set the color of a mixer track.
+        """Set the color of a mixer track, which is an audio bus.
+
+        Not a Channel Rack channel. For that use fl_set_channel_color.
 
         Args:
             track: Mixer track index

@@ -63,6 +63,19 @@ This server provides tools to control FL Studio through its Python scripting API
 FL Studio must be running with the FL Studio MCP Controller enabled in Options >
 MIDI Settings.
 
+Channels and mixer tracks are different things, and confusing them is the most
+common mistake made with FL Studio:
+
+- A channel lives in the Channel Rack, holds an instrument or a sample, and is
+  what notes play on. Tools are named fl_*_channel_*.
+- A mixer track is an audio bus carrying volume, pan, EQ and effects. Channels
+  are routed into mixer tracks, many channels can share one, and a track has no
+  notes of its own. Tools are named fl_*_track_*.
+
+Turning down a channel is not the same as turning down the mixer track it feeds.
+When the user says "track" they usually mean whichever one they can see, so check
+with fl_describe_project rather than guessing.
+
 Available tool categories:
 - Connection: connect, and confirm FL actually answers
 - Transport: play, stop, record, position, loop mode, playback speed
