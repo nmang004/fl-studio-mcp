@@ -96,8 +96,14 @@ def structure_critique() -> dict[str, Any]:
 
     ppq_reply, patterns_reply, markers_reply = results[0] or {}, results[1] or {}, results[2] or {}
     context = project_context()
-    context["ppq"] = ppq_reply.get("ppq")
-    context["meter_read"] = bool(context)
+    meter_read = bool(context)
+    # A missing timebase would leave every marker unmeasurable, so it falls back to
+    # the value observed on live FL Studio. The reply says which of the two happened
+    # rather than presenting the fallback as a reading.
+    ppq = ppq_reply.get("ppq")
+    ppq_read = isinstance(ppq, int) and ppq > 0
+    context["ppq"] = ppq if ppq_read else structure.DEFAULT_PPQ
+    context["meter_read"] = meter_read
 
     report = structure.critique(
         context,
@@ -112,11 +118,16 @@ def structure_critique() -> dict[str, Any]:
             "key": context.get("key"),
             "time_signature": summary["time_signature"],
             "beats_per_bar": summary["beats_per_bar"],
-            "ppq": context.get("ppq"),
-            "meter_read": context["meter_read"],
+            "ppq": context["ppq"],
+            "ppq_source": (
+                "system.getPpq"
+                if ppq_read
+                else f"assumed {structure.DEFAULT_PPQ}, because the batch did not report it"
+            ),
+            "meter_read": meter_read,
             "meter_source": (
                 "score.tsnum and score.tsden, in the piano roll's sandbox"
-                if context["meter_read"]
+                if meter_read
                 else "assumed 4/4, because the piano roll script did not answer"
             ),
         },
@@ -162,6 +173,11 @@ def register_structure_tools(mcp: FastMCP) -> None:
         in a single batch. The key and meter come from the piano roll's own sandbox,
         which a controller batch cannot reach, and when that read does not answer
         the report says the meter was assumed to be 4/4.
+
+        FL can read a marker's name but not its time, so today a section's start and
+        length come back unmeasurable and an observation says exactly that. The
+        arithmetic for a time is in place and tested, and it starts working the day a
+        time can be read.
 
         Read only: nothing in the project is changed.
 

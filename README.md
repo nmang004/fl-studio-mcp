@@ -524,6 +524,19 @@ against the wrong piano roll.
 | `fl_undo_history` | Report how deep the undo history is |
 
 
+## Structure And Templates
+
+| Tool | Description |
+|------|-------------|
+| `fl_structure_critique` | Read the song's sections and pattern lengths, as arithmetic |
+| `fl_apply_template` | Name, colour and route from a validated template |
+
+`fl_structure_critique` reports only what can be counted: how many bars each marker section is, whether each pattern divides into four bar blocks, and whether a marker sits off a bar line. It has no opinion about whether a chorus is too short, and it says so.
+
+One limit is worth knowing before you read its output. **FL's controller API cannot read a marker's position**: the stubs have no `getMarkerTime`, so the server reports marker names with `time: null` and the tool states that section lengths are unavailable rather than guessing them. The piano roll sandbox does expose marker times, so that is the route if it is ever wanted, and it needs a live check first.
+
+`fl_apply_template` only touches what the spec names, and only when a track still carries FL's generated name unless you pass `overwrite=True`, so it will not rename work you already labelled. Applying goes through one batch, so one undo reverses it. It cannot load an instrument, because the API cannot, and the reply names the tracks that are still empty.
+
 ### Plugin Preset Library
 
 | Tool | Description |

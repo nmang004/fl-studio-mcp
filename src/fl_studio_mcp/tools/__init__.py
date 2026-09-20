@@ -19,6 +19,8 @@ from fl_studio_mcp.tools.routing import register_routing_tools
 from fl_studio_mcp.tools.samples import register_sample_tools
 from fl_studio_mcp.tools.score import register_score_tools
 from fl_studio_mcp.tools.snapshots import register_snapshot_tools
+from fl_studio_mcp.tools.structure import register_structure_tools
+from fl_studio_mcp.tools.templates import register_template_tools
 from fl_studio_mcp.tools.tempo import register_tempo_tools
 from fl_studio_mcp.tools.transport import register_transport_tools
 
@@ -45,4 +47,6 @@ __all__ = [
     "register_preset_tools",
     "register_browser_tools",
     "register_index_tools",
+    "register_structure_tools",
+    "register_template_tools",
 ]

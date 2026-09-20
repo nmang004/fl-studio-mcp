@@ -46,6 +46,8 @@ from fl_studio_mcp.tools import (
     register_sample_tools,
     register_score_tools,
     register_snapshot_tools,
+    register_structure_tools,
+    register_template_tools,
     register_tempo_tools,
     register_transport_tools,
 )
@@ -221,6 +223,8 @@ register_snapshot_tools(mcp)
 register_preset_tools(mcp)
 register_browser_tools(mcp)
 register_index_tools(mcp)
+register_structure_tools(mcp)
+register_template_tools(mcp)
 
 
 def main():
