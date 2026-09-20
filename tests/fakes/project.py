@@ -203,6 +203,9 @@ class FakeProject:
         # The name the producer gave the plugin, which plugins.getPluginName
         # returns only when its userName argument is set.
         self.plugin_user_names: dict[tuple[int, int], str] = {}
+        # Parameter indices whose name reads back empty, the way an unused VST
+        # parameter does.
+        self.plugin_unnamed: set[int] = set()
         # Every call whose argument order this suite has been wrong about before.
         self.plugin_calls: list[tuple[str, dict]] = []
         self.arrangement_selection = (0, 0)

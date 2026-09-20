@@ -87,10 +87,18 @@ def build(project: FakeProject) -> ModuleType:
         slotIndex: int = -1,
         useGlobalIndex: bool = False,
     ) -> str:
+        """The parameter's name, or an empty string for an unused one.
+
+        A VST reports thousands of parameters it is not using, and the stubs say their
+        names come back empty (`plugins/__init__.py:44-46`). A test that cannot make a
+        parameter unnamed cannot test skipping them.
+        """
         if slotIndex < 0:
             project.channel(index)
         if not 0 <= paramIndex < PARAM_COUNT:
             raise IndexError(f"parameter {paramIndex} out of range")
+        if paramIndex in project.plugin_unnamed:
+            return ""
         return f"Param {paramIndex}"
 
     def getParamValue(

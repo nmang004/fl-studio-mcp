@@ -6,15 +6,62 @@ does not support loading new plugins programmatically.
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
+
+from fl_studio_mcp.utils.connection import get_connection
 
 if TYPE_CHECKING:
     from fastmcp import FastMCP
 
 
+def get_plugin_params(
+    index: int,
+    slot_index: int = -1,
+    use_global_index: bool = True,
+    max_params: int = 50,
+    offset: int = 0,
+    include_unnamed: bool = False,
+) -> dict[str, Any]:
+    """One page of a plugin's parameters, with the total and what was dropped.
+
+    Module level rather than inside the registry, so the paging can be tested without
+    standing up an MCP server, which is how the rest of this package is arranged.
+    """
+    conn = get_connection()
+    result = conn.send_command("plugins.getParams", {
+        "index": index,
+        "slot_index": slot_index,
+        "use_global": use_global_index,
+        "max_params": max_params,
+        "offset": offset,
+        "skip_unnamed": not include_unnamed,
+    })
+
+    if not result.get("success", False) and "error" in result:
+        return {"success": False, "error": result["error"], "params": []}
+
+    params = result.get("params", [])
+    total = result.get("total", len(params))
+    page = {
+        "success": True,
+        "params": params,
+        "total": total,
+        "offset": result.get("offset", offset),
+        "returned": result.get("returned", len(params)),
+        "skipped_unnamed": result.get("skipped_unnamed", 0),
+    }
+    next_offset = page["offset"] + len(params)
+    if next_offset < total:
+        page["next_offset"] = next_offset
+        page["message"] = (
+            f"Showing {len(params)} of {total} parameter(s). Call again with "
+            f"offset={next_offset} for the next page."
+        )
+    return page
+
+
 def register_plugin_tools(mcp: FastMCP) -> None:
     """Register plugin control tools with the MCP server."""
-    from fl_studio_mcp.utils.connection import get_connection
 
     @mcp.tool()
     def fl_is_plugin_valid(
@@ -99,28 +146,40 @@ def register_plugin_tools(mcp: FastMCP) -> None:
         index: int,
         slot_index: int = -1,
         use_global_index: bool = True,
-        max_params: int = 50
-    ) -> list[dict]:
-        """Get all parameters of a plugin with their current values.
+        max_params: int = 50,
+        offset: int = 0,
+        include_unnamed: bool = False,
+    ) -> dict:
+        """Read a page of a plugin's parameters with their current values.
+
+        A plugin can have thousands: a VST reports 4240, most of them unused. This
+        reads a page and reports the total, so a caller can walk the whole plugin
+        rather than seeing the first fifty and assuming that was all of it.
+
+        Parameters whose names come back empty are the ones a plugin reserves and does
+        not use, so they are skipped unless include_unnamed is set.
 
         Args:
             index: Channel index (global) or mixer track index
             slot_index: Effect slot index for mixer plugins (-1 for channel rack)
             use_global_index: Whether to use global channel indexing
-            max_params: Maximum number of parameters to return (default 50)
+            max_params: How many parameters to return in this page
+            offset: Which parameter to start at, for the next page
+            include_unnamed: Keep the parameters with empty names
+
+        Returns:
+            params: this page, each with its index, name, value and display string
+            total: how many parameters the plugin reports
+            skipped_unnamed: how many were dropped for having no name
         """
-        conn = get_connection()
-        result = conn.send_command("plugins.getParams", {
-            "index": index,
-            "slot_index": slot_index,
-            "use_global": use_global_index,
-            "max_params": max_params,
-        })
-
-        if not result.get("success", False) and "error" in result:
-            return [{"error": result["error"]}]
-
-        return result.get("params", [])
+        return get_plugin_params(
+            index,
+            slot_index=slot_index,
+            use_global_index=use_global_index,
+            max_params=max_params,
+            offset=offset,
+            include_unnamed=include_unnamed,
+        )
 
     @mcp.tool()
     def fl_get_plugin_param_value(

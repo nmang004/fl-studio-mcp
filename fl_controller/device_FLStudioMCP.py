@@ -2135,11 +2135,24 @@ def handle_plugins_get_param_count(params: dict) -> dict:
 
 
 def handle_plugins_get_params(params: dict) -> dict:
-    """Get all plugin parameters."""
+    """Read a page of a plugin's parameters.
+
+    Paged because a VST reports 4240 of them: 4096 real parameters plus 128 MIDI CC
+    and 16 aftertouch, per the stub's own note (plugins/__init__.py:138-141). The old
+    version read the first 50 and stopped, which hid most of the plugin and said
+    nothing about it.
+
+    `offset` is where to start. `skip_unnamed` drops the parameters whose names come
+    back empty, which are the ones a plugin reserves and does not use
+    (plugins/__init__.py:44-46), and the count of what was dropped is reported so the
+    caller can tell a short plugin from a filtered one.
+    """
     index = params.get("index", 0)
     slot_index = params.get("slot_index", -1)
     use_global = params.get("use_global", True)
     max_params = params.get("max_params", 50)
+    offset = max(0, int(params.get("offset", 0) or 0))
+    skip_unnamed = bool(params.get("skip_unnamed", False))
 
     if slot_index >= 0:
         param_count = plugins.getParamCount(index=index, slotIndex=slot_index, useGlobalIndex=True)
@@ -2147,48 +2160,28 @@ def handle_plugins_get_params(params: dict) -> dict:
         param_count = plugins.getParamCount(index=index, slotIndex=-1, useGlobalIndex=use_global)
 
     param_list = []
-    for i in range(min(param_count, max_params)):
+    skipped_unnamed = 0
+    for i in range(offset, param_count):
+        if len(param_list) >= max_params:
+            break
         try:
-            if slot_index >= 0:
-                name = plugins.getParamName(
-                    paramIndex=i,
-                    index=index,
-                    slotIndex=slot_index,
-                    useGlobalIndex=True,
-                )
-                value = plugins.getParamValue(
-                    paramIndex=i,
-                    index=index,
-                    slotIndex=slot_index,
-                    useGlobalIndex=True,
-                )
-                value_str = plugins.getParamValueString(
-                    paramIndex=i,
-                    index=index,
-                    slotIndex=slot_index,
-                    pickupMode=midi.PIM_None,
-                    useGlobalIndex=True,
-                )
-            else:
-                name = plugins.getParamName(
-                    paramIndex=i,
-                    index=index,
-                    slotIndex=-1,
-                    useGlobalIndex=use_global,
-                )
-                value = plugins.getParamValue(
-                    paramIndex=i,
-                    index=index,
-                    slotIndex=-1,
-                    useGlobalIndex=use_global,
-                )
-                value_str = plugins.getParamValueString(
-                    paramIndex=i,
-                    index=index,
-                    slotIndex=-1,
-                    pickupMode=midi.PIM_None,
-                    useGlobalIndex=use_global,
-                )
+            use_global_here = True if slot_index >= 0 else use_global
+            slot_here = slot_index if slot_index >= 0 else -1
+            name = plugins.getParamName(
+                paramIndex=i, index=index, slotIndex=slot_here,
+                useGlobalIndex=use_global_here,
+            )
+            if skip_unnamed and not str(name or "").strip():
+                skipped_unnamed += 1
+                continue
+            value = plugins.getParamValue(
+                paramIndex=i, index=index, slotIndex=slot_here,
+                useGlobalIndex=use_global_here,
+            )
+            value_str = plugins.getParamValueString(
+                paramIndex=i, index=index, slotIndex=slot_here,
+                pickupMode=midi.PIM_None, useGlobalIndex=use_global_here,
+            )
 
             param_list.append({
                 "index": i,
@@ -2200,7 +2193,13 @@ def handle_plugins_get_params(params: dict) -> dict:
             print(f"Warning: could not read param {i}: {e}")
             continue
 
-    return {"params": param_list}
+    return {
+        "params": param_list,
+        "total": param_count,
+        "offset": offset,
+        "returned": len(param_list),
+        "skipped_unnamed": skipped_unnamed,
+    }
 
 
 def handle_plugins_get_param_value(params: dict) -> dict:

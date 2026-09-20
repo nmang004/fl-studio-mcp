@@ -490,7 +490,7 @@ named Drums are unrelated things that happen to share a name.
 | `fl_is_plugin_valid` | Check if plugin exists |
 | `fl_get_plugin_name` | Get plugin name |
 | `fl_get_plugin_param_count` | Get parameter count |
-| `fl_get_plugin_params` | List all parameters |
+| `fl_get_plugin_params` | Read a page of a plugin's parameters, with the total |
 | `fl_get_plugin_param_value` | Get parameter value |
 | `fl_set_plugin_param_value` | Set parameter value |
 | `fl_get_preset_count` | Get preset count |
