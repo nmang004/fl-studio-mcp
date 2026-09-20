@@ -1,21 +1,25 @@
-"""Read the song's structure in one controller round trip, and report what is arithmetic.
+"""Read the song's structure in one controller round trip, plus one piano roll request.
 
 The controller readings go in one batch: the timebase, every pattern and the
 arrangement's markers. One trigger, one reply.
 
-Neither the key and meter nor a marker's time can ride in that batch, and the reason
-is architectural rather than an oversight: both live on `flpianoroll.score`, in the
-piano roll's sandbox, and the controller cannot see them at all. `arrangement` can
-read a marker's name and has no function that reads its time, so the arrangement is
-the source of names and of the marker count while the piano roll is the source of
-times. One piano roll request carries the marker times and the meter together,
-because one script run can answer both and a second request would spend a second
-keystroke on data the first run already had.
+The key and the meter cannot ride in that batch, and the reason is architectural
+rather than an oversight: both live on `flpianoroll.score`, in the piano roll's
+sandbox, and the controller cannot see them at all. One `get_context` request carries
+them, the same request `project_context` sends for the template tools, so the critique
+costs exactly one piano roll script run.
 
-Both piano roll readings are bonuses for the report, never a reason to lose it. When
-the script does not answer, the report still runs, the meter falls back to 4/4, the
-section times are reported as unreadable rather than guessed, and the observations
-say which of those happened.
+No marker time is readable anywhere, and this module no longer looks for one. The
+controller's API has no function that reads a marker's time: `arrangement.getMarkerName`
+is its only marker reader, so `arrangement.getMarkers` reports a name and a null time
+for every marker. The piano roll's own accessors were measured on live FL Studio 2026
+build 5406 and report zero markers for an arrangement that holds three, so they are a
+silent no-op rather than a second source. Section times are therefore unavailable on
+this build, and the report says so instead of guessing a bar position.
+
+The piano roll reading is a bonus for the report, never a reason to lose it. When the
+script does not answer, the report still runs, the meter falls back to 4/4, the section
+times are reported as unreadable, and the observations say which of those happened.
 
 The critique itself is arithmetic in `musical/structure.py`. This module knows which
 FL actions to call, and nothing about what an answer means.
@@ -46,7 +50,6 @@ STRUCTURE_TIMEOUT = 20.0
 # seconds the riff and bassline tools use.
 PIANO_ROLL_TIMEOUT = 5.0
 CONTEXT_REQUEST_ID = "structure-context"
-MARKERS_REQUEST_ID = "structure-markers"
 
 
 def project_context() -> dict[str, Any]:
@@ -56,26 +59,11 @@ def project_context() -> dict[str, Any]:
     to put something in `beats_per_bar`, and a default is not a measurement. The
     caller can then say the meter was assumed.
 
-    This is the standalone key and meter read, used by the template tools.
-    `structure_critique` does not call it: it asks for the marker times and the meter
-    in one request, so its piano roll cost stays at one script run.
+    This is the standalone key and meter read, used by the template tools and by
+    `structure_critique`, so one request shape serves every caller.
     """
     reply = _piano_roll_request({"action": "get_context", "id": CONTEXT_REQUEST_ID})
     return _context_from_readings(reply)
-
-
-def piano_roll_readings() -> dict[str, Any]:
-    """One piano roll request: the marker times, the key and the meter.
-
-    The critique needs the meter for its bar arithmetic and the times to measure a
-    section at all, and one script run answers both, so they travel together. The
-    action is the script's `get_markers`.
-
-    Never raises. A piano roll read is a bonus for the report, never a reason to lose
-    it: an empty dict comes back when the script does not answer, and the caller says
-    which readings were missing.
-    """
-    return _piano_roll_request({"action": "get_markers", "id": MARKERS_REQUEST_ID})
 
 
 def _piano_roll_request(request: dict[str, Any]) -> dict[str, Any]:
@@ -134,42 +122,32 @@ def structure_critique() -> dict[str, Any]:
         }
 
     ppq_reply, patterns_reply, markers_reply = results[0] or {}, results[1] or {}, results[2] or {}
+    markers = markers_reply.get("markers") or []
 
-    # One piano roll request answers the marker times and the meter together. It is
-    # sent after the batch: a batch that failed has already returned, so a piano roll
-    # reading would have no report to contribute to.
-    readings = piano_roll_readings()
-    context = _context_from_readings(readings)
+    # The key and the meter come from one get_context request, which is the request
+    # the template tools make through project_context. It is sent after the batch: a
+    # batch that failed has already returned, so a piano roll reading would have no
+    # report to contribute to.
+    context = project_context()
     meter_read = bool(context)
-    # A missing timebase would leave every marker unmeasurable, so it falls back. The
-    # marker ticks arrived with the piano roll score's own PPQ, so that reading
-    # measures them when the controller did not report one; only when neither did does
-    # this fall back to the value observed on live FL Studio. The reply says which of
-    # the three happened rather than presenting a fallback as a reading.
+    # A missing timebase would leave the pattern arithmetic without a unit, so it
+    # falls back to the PPQ the piano roll reported with the context, and only then
+    # to the value observed on live FL Studio. The reply says which of the three
+    # happened rather than presenting a fallback as a reading.
     ppq = ppq_reply.get("ppq")
     ppq_read = isinstance(ppq, int) and not isinstance(ppq, bool) and ppq > 0
     if ppq_read:
         ppq_source = "system.getPpq"
     elif isinstance(context.get("ppq"), int) and context["ppq"] > 0:
         ppq = context["ppq"]
-        ppq_source = "the piano roll score's own PPQ, because the batch did not report one"
+        ppq_source = "the piano roll's own PPQ, because the batch did not report one"
     else:
         ppq = structure.DEFAULT_PPQ
         ppq_source = f"assumed {structure.DEFAULT_PPQ}, because the batch did not report it"
     context["ppq"] = ppq
     context["meter_read"] = meter_read
 
-    piano_roll_markers, markers_error = _markers_from_readings(readings)
-    marker_times = structure.merge_marker_times(
-        markers_reply.get("markers") or [], piano_roll_markers, markers_error
-    )
-
-    report = structure.critique(
-        context,
-        patterns_reply.get("patterns") or [],
-        marker_times["markers"],
-        marker_times=marker_times,
-    )
+    report = structure.critique(context, patterns_reply.get("patterns") or [], markers)
     summary = report["summary"]
     return {
         "success": True,
@@ -187,17 +165,21 @@ def structure_critique() -> dict[str, Any]:
                 else "assumed 4/4, because the piano roll script did not answer"
             ),
         },
-        "marker_times_source": summary["marker_times_source"],
+        # The one machine readable field about marker times. Nothing can read one on
+        # this build, so an arrangement holding markers has no time to give and an
+        # arrangement holding none has nothing to time.
+        "marker_times_source": (
+            structure.TIMES_UNAVAILABLE if markers else structure.TIMES_NOT_NEEDED
+        ),
         "sections": report["sections"],
         "patterns": report["patterns"],
         "observations": report["observations"],
         "summary": summary,
         "note": (
             "One controller round trip: the timebase, the patterns and the markers "
-            "arrive in a single batch. One piano roll request, which carries the key, "
-            "the meter and the marker times together: a controller batch cannot reach "
-            "any of them, and the arrangement's own reader returns a marker's name "
-            "without its time."
+            "arrive in a single batch. One piano roll request carries the key and the "
+            "meter, which no controller batch can reach. No marker time is readable "
+            "on this build, so no section claims a bar position."
         ),
     }
 
@@ -224,54 +206,6 @@ def _context_from_readings(reply: dict[str, Any]) -> dict[str, Any]:
         return score.context_from_reply(reply)
     except Exception:
         return {}
-
-
-def _markers_from_readings(reply: dict[str, Any]) -> tuple[list[dict] | None, str | None]:
-    """The piano roll's marker list and the reason it is missing, from a reply.
-
-    A marker list that is there is used even when the reply also carries an error,
-    because a failed state export says nothing about whether the markers were read. A
-    reply with no list at all is reported as missing rather than as an empty list:
-    "the piano roll holds no markers" and "nobody could read its markers" are
-    different facts, and the merge has to tell them apart.
-    """
-    entry = _markers_entry(reply)
-    if entry is None:
-        error = reply.get("error")
-        if error:
-            return None, str(error)
-        return None, (
-            "the reply carried no marker list, which is what a piano roll script that "
-            "does not know the get_markers action returns"
-        )
-
-    markers = entry.get("markers")
-    if isinstance(markers, list):
-        return markers, None
-    error = entry.get("markers_error") or reply.get("error")
-    if error:
-        return None, str(error)
-    if markers is None:
-        return None, "the piano roll reported no marker list"
-    return None, "the piano roll reported its markers in a shape this server does not read"
-
-
-def _markers_entry(reply: dict[str, Any]) -> dict[str, Any] | None:
-    """The response entry that carries the marker list.
-
-    The top level of the script's reply is the lead response, which is the whole
-    answer for the single request this module sends. A reply that answered more than
-    one request carries each answer separately, so the entry with this module's id is
-    preferred over whichever one happened to be first.
-    """
-    candidates = [reply, *_response_entries(reply)]
-    for candidate in candidates:
-        if candidate.get("id") == MARKERS_REQUEST_ID and "markers" in candidate:
-            return candidate
-    for candidate in candidates:
-        if "markers" in candidate or "markers_error" in candidate:
-            return candidate
-    return None
 
 
 def _response_entries(reply: dict[str, Any]) -> list[dict[str, Any]]:
@@ -317,30 +251,26 @@ def register_structure_tools(mcp: FastMCP) -> None:
 
         Cost: one controller round trip plus one piano roll request. The controller
         batch carries the timebase, every pattern and the arrangement's markers, and
-        one piano roll script run answers the marker times and the meter together.
-        A second piano roll request would spend a second keystroke on data the first
-        run already had.
-
-        The arrangement reports a marker's name and no time, because the controller's
-        API has no function that reads a time. The times come from the piano roll's
-        own sandbox, matched to the arrangement's markers by index, and
-        `marker_times_source` says what happened: "piano_roll" when the times were
-        read, "mismatch" when the two sources counted a different number of markers,
-        "unavailable" when no time could be read, and "not_needed" when the
-        arrangement holds no markers. A section is only given a start bar and a
-        length when its time was read; nothing here guesses one.
+        one piano roll script run carries the key and the meter, which the controller
+        cannot reach. The arrangement reports a marker's name and no time, because
+        its API has no function that reads one, and the piano roll's own marker
+        accessors were measured on live FL Studio 2026 build 5406 and report zero
+        markers on a project whose arrangement holds three. Marker times are
+        therefore unreadable on this build, and no section is given a start bar or a
+        length by guesswork: those fields come back as None.
 
         Read only: nothing in the project is changed.
 
         Returns:
-            sections: one per marker, with its start bar and its length to the next
-                      marker, or None for the last one
+            sections: one per marker, whose start_bar, length_bars and ticks are all
+                      None because no marker time is readable
             patterns: every pattern's length in beats and bars, and whether it fills
                       a whole number of four bar blocks
-            observations: the arithmetic findings, problems first
-            summary: the counts, the meter the arithmetic used, the key when the
-                     piano roll reported one, and where the marker times came from
-            marker_times_source: the summary value, repeated at the top level so a
-                     caller can check it without reading the summary
+            observations: the arithmetic findings, problems first, including the
+                      informational marker_times_unreadable note
+            summary: the counts, the meter the arithmetic used and the key when the
+                      piano roll reported one
+            marker_times_source: "unavailable" when the arrangement holds markers
+                      whose times cannot be read, and "not_needed" when it holds none
         """
         return structure_critique()

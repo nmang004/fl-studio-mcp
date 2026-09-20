@@ -122,25 +122,6 @@ class Note:
     slide: bool = False
 
 
-@dataclass
-class Marker:
-    """A time marker as the piano roll sandbox sees it.
-
-    flpianoroll/__marker.py gives a marker a name and a time in ticks, and Score has
-    markerCount and getMarker to reach them. The controller's arrangement exposes a
-    marker's name and no time at all, which is why the structure critique reads the
-    times on this side.
-
-    Only name and time are carried. The stub's mode, tsnum, tsden, scale_root and
-    scale_helper describe time signature and key markers, and nothing reads them, so
-    a fake carrying them would only invite code to lean on behaviour nothing here has
-    verified. The same reason the fake playlist has no clip placement function.
-    """
-
-    name: str = "Marker"
-    time: int = 0
-
-
 class FakeProject:
     """The whole fake project, one instance per test.
 
@@ -196,12 +177,6 @@ class FakeProject:
         # only marker reader the API has, so handle_arrangement_get_markers reports
         # the time as None on purpose.
         self.markers: list[tuple[int, str]] = []
-        # The same project's markers as the piano roll sandbox sees them, named and
-        # timed, which is what flpianoroll.Marker offers. Kept apart from `markers`
-        # rather than mirroring it: the two sandboxes cannot see each other, so a
-        # fake that made them agree by construction would hide the count mismatch
-        # that the structure critique has to report.
-        self.piano_roll_markers: list[Marker] = []
         self.snap_mode = 0
         self.metronome = False
         self.focused_window = -1

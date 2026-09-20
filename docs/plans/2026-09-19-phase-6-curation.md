@@ -1158,6 +1158,8 @@ should not have to rediscover.
 | Riffs, and then E1 and E2, were four and two commits | They landed as two and one. The separation that mattered was between the pure arithmetic and the tools, not between neighbouring verbs |
 | Browser integration would search and audition | There is no browser search of any kind in the API, and the stub distrusts `navigateBrowser`. Only the focused node and audition ship, and the tool says it plays whatever is highlighted because it cannot choose a file |
 | Phase 3's claim that patterns can be created | `patterns.findFirstNextEmptyPat` froze FL Studio 2026 build 5406 twice on 2026-09-19, once with flags 0 and once with the prompt suppressed and the `None` return no longer used. Both freezes cost the open session. Pattern creation is now refused by the controller, with the corrected call kept behind a constant and tested, and the roadmap and README record the finding |
+| Marker times would give sections real bars | The piano roll was expected to be the sandbox that could read them, since the stubs there define `markerCount`, `getMarker` and `Marker.time` while the controller has no `getMarkerTime` at all. Live twice, with three markers in the arrangement including a time signature marker, those accessors returned an empty list and no error. The plumbing that read them, merged them and reported a count mismatch was written, tested, and then deleted, because code that can never work should not be carried switched off. The bar arithmetic in `musical/structure.py` is kept and unit tested, with no live caller, so that a future build which does expose the times does not need it re-derived |
+
 | Nothing about keyword arguments | Passing plugin arguments by name, which is what the four argument-order defects argued for, turned out not to be universally safe: a parameter page called by keyword returned no parameters and reported success, which means something raised where the exception text only reaches FL's script output window. A probe action was added to ask this build what each function accepts, and the answer decides the final form of those calls |
 
 **Open regression, measured live on 2026-09-19.** `plugins.getParams` called with keyword arguments returned `success: true`, `total: 45`, `returned: 0` on channel 4, which means a call inside the loop raised and was swallowed by the handler's own guard. `plugins.getPluginName` with keywords worked on the same plugin, so keyword support is per function rather than all or nothing. A probe action (`plugins.probeCalls`) was drafted to ask this build what each function accepts, positional against keyword, but it was not applied because the controller file was busy with the browser work. That probe is the next step for this task: run it, set each call to the form the build accepts, and add a test that pins the accepted form rather than the nicer looking one.
@@ -1197,13 +1199,14 @@ the test double had the wrong signature and the wrong return type and the suite 
       exposes them, with the arrangement still the source of names and count, a mismatch
       between the two reported rather than smoothed over, and no bar position ever
       guessed.
-- [ ] Marker times produce arrangement section bars. Attempted live with two drawn
-      markers and the answer is negative: the request path works, the script replies with
-      `ppq: 96` and `meter: 4/4`, and it reports zero markers where the arrangement holds
-      two, so the critique reports a mismatch and claims no bars. The piano roll's marker
-      list is therefore not the arrangement's list on this build, and finding out which
-      markers it does hold is the next step. Until then this feature is plumbing that
-      runs, not a feature that works.
+- [ ] Marker times produce arrangement section bars. Attempted live twice, with two
+      drawn markers and then with a time signature marker added, and the answer is
+      negative: the request path works, the script replies with `ppq: 96` and a measured
+      meter, and it reports **zero markers** both times where the arrangement holds three.
+      `markers_error` is null, so the accessors exist and are a silent no-op on FL Studio
+      2026 build 5406. The plumbing was therefore deleted rather than carried, and the
+      finding is recorded in the roadmap's live-verified table. Section lengths stay
+      unavailable, which is the truth rather than a gap.
 - [x] `pytest` green and `ruff check .` clean with no FL Studio running, and a clean
       clone installs with `uv sync --dev --locked` and passes. 1075 tests, 101 tools.
 - [ ] A riff can be saved, found and recalled transposed into the project's key, with

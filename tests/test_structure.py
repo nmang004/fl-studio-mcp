@@ -4,10 +4,12 @@ The fixtures here are bars, because the arithmetic is about bars: one bar of 4/4
 96 PPQ is 384 ticks and one bar of 3/4 is 288, and every expectation is written from
 that rather than from a magic number.
 
-The times themselves come from the piano roll, because the controller cannot read a
-marker's time at all. This file covers the arithmetic and the fallback when no time
-arrives; the read itself and the merge of the two sources have their own file,
-tests/test_piano_roll_markers.py.
+No marker time is readable on this build. The controller's API has no function that
+reads one, and the piano roll's own accessors were measured on live FL Studio 2026
+build 5406 and report zero markers for a project whose arrangement holds three. So
+this file pins both halves of that: the arithmetic that still measures a time it was
+given, and the report that says the times are unavailable and claims no bar position
+instead of inventing one.
 """
 
 from __future__ import annotations
@@ -41,12 +43,12 @@ def kinds(report: dict) -> dict:
 
 
 def context_reply(tsnum: int = 4, tsden: int = 4) -> dict:
-    """What the piano roll script wrote for get_context, in an older reply shape.
+    """What the piano roll script writes for get_context.
 
-    It carries no marker list, which is what a script that does not know the
-    get_markers action returns. The tests that need marker times set them on the
-    project and go through the real script; these tests are about the arithmetic and
-    the fallback when no time can be read.
+    The tool sends the same request `project_context` sends, so this is the reply
+    shape the context converter reads. It carries no marker list and never did: no
+    marker time is readable anywhere on this build, so the tests that need one call
+    the arithmetic directly instead.
     """
     return {
         "success": True,
@@ -249,54 +251,29 @@ def test_a_pattern_that_fills_four_bar_blocks_is_not_reported():
 
 
 def test_markers_without_times_are_reported_as_unmeasurable():
-    markers = [{"name": "Intro", "time": None}, {"name": "Verse", "time": None}]
+    """The arrangement gives names and no times, so no position is claimed."""
+    markers = [
+        {"index": 0, "name": "Intro", "time": None},
+        {"index": 1, "name": "Verse", "time": None},
+    ]
     report = structure.critique(context(), [], markers)
     finding = kinds(report)["marker_times_unreadable"]
     assert finding["severity"] == "informational"
-    assert report["sections"][0]["start_bar"] is None
-    assert report["sections"][0]["length_bars"] is None
+    assert report["summary"]["problem_count"] == 0
+    assert [section["ticks"] for section in report["sections"]] == [None, None]
+    assert [section["start_bar"] for section in report["sections"]] == [None, None]
+    assert [section["length_bars"] for section in report["sections"]] == [None, None]
+    assert [section["on_bar_line"] for section in report["sections"]] == [None, None]
 
 
-def test_the_summary_says_where_the_marker_times_came_from():
-    markers = [{"name": "Intro", "time": 0}, {"name": "Verse", "time": 4 * BAR_4_4}]
-    report = structure.critique(context(), [], markers, marker_times={
-        "source": structure.TIMES_FROM_PIANO_ROLL,
-        "detail": None,
-        "piano_roll_marker_count": 2,
-    })
-    assert report["summary"]["marker_times_source"] == "piano_roll"
-    assert report["summary"]["piano_roll_marker_count"] == 2
-    assert "marker_count_mismatch" not in kinds(report)
-
-
-def test_a_count_mismatch_is_a_problem_carrying_both_counts():
-    """The two sources are two sandboxes, so their counts are compared, not merged."""
-    markers = [{"name": "Intro", "time": 0}, {"name": "Verse", "time": None}]
-    report = structure.critique(context(), [], markers, marker_times={
-        "source": structure.TIMES_MISMATCH,
-        "detail": "The arrangement reports 2 marker(s) and the piano roll reports 1.",
-        "piano_roll_marker_count": 1,
-    })
-    finding = kinds(report)["marker_count_mismatch"]
-    assert finding["severity"] == "problem"
-    assert finding["controller_marker_count"] == 2
-    assert finding["piano_roll_marker_count"] == 1
-    assert report["summary"]["piano_roll_marker_count"] == 1
-    # The unmatched marker is still reported as unmeasured, not as bar one.
-    assert report["sections"][1]["start_bar"] is None
-
-
-def test_an_unavailable_source_explains_itself_in_the_observation():
-    markers = [{"name": "Intro", "time": None}]
-    report = structure.critique(context(), [], markers, marker_times={
-        "source": structure.TIMES_UNAVAILABLE,
-        "detail": "The piano roll is the only sandbox that can read a marker's time.",
-        "piano_roll_marker_count": None,
-    })
-    finding = kinds(report)["marker_times_unreadable"]
-    assert finding["severity"] == "informational"
-    assert "only sandbox" in finding["detail"]
-    assert report["summary"]["marker_times_source"] == "unavailable"
+def test_the_unreadable_reason_says_what_was_measured():
+    """Both halves of the reason are measurements, so both are in the sentence."""
+    markers = [{"index": 0, "name": "Intro", "time": None}]
+    report = structure.critique(context(), [], markers)
+    detail = kinds(report)["marker_times_unreadable"]["detail"]
+    assert "1 of 1 marker(s) have no readable time" in detail
+    assert "the controller's API has no function that reads one" in detail
+    assert "report zero markers on this build" in detail
 
 
 def test_the_last_section_is_compared_with_the_others():
@@ -341,13 +318,12 @@ def test_the_critique_does_not_reorder_the_data_it_was_given():
 
 @pytest.fixture
 def wired(fl_env, monkeypatch):
-    """The structure tool wired to the in-process controller and a known piano roll reply.
+    """The structure tool wired to the in-process controller and a known context reply.
 
     The context read goes through the real converter here and only its reply is
     faked, because the converter is what turns tsnum and tsden into beats per bar.
-    The faked reply carries no marker list, so these tests exercise the fallback with
-    no section times; the tests for a piano roll that does report markers go through
-    the real script in tests/test_piano_roll_markers.py.
+    The reply is the get_context one, which is the only piano roll request the tool
+    makes, and it carries no marker times because none are readable on this build.
 
     Every request the tool sends to the piano roll is recorded on
     `fl_env.piano_roll_requests`, so a test can count them and read the action.
@@ -380,7 +356,58 @@ def test_the_whole_report_is_one_round_trip(wired):
     assert result["success"] is True, result
     assert wired.trigger_count - before == 1
     assert result["round_trips"] == 1
-    assert [request["action"] for request in wired.piano_roll_requests] == ["get_markers"]
+    assert [request["action"] for request in wired.piano_roll_requests] == ["get_context"]
+
+
+def test_the_context_request_is_the_one_other_callers_send(wired):
+    """The critique reads the key and meter through the shared get_context path.
+
+    Pinned by comparing the two requests byte for byte: the template tools call
+    `project_context`, the critique calls it too, and a second request shape would
+    mean the critique had grown its own piano roll protocol again.
+    """
+    structure_tool.structure_critique()
+    structure_tool.project_context()
+
+    assert len(wired.piano_roll_requests) == 2
+    assert wired.piano_roll_requests[0] == wired.piano_roll_requests[1]
+    assert wired.piano_roll_requests[0]["action"] == "get_context"
+
+
+def test_the_context_comes_back_through_the_piano_roll_request(wired):
+    """The meter is measured rather than assumed, and the reply names its source."""
+    result = structure_tool.structure_critique()
+    assert result["context"]["meter_read"] is True
+    assert result["context"]["time_signature"] == "4/4"
+    assert result["summary"]["beats_per_bar"] == 4.0
+    assert "piano roll" in result["context"]["meter_source"]
+
+
+def test_the_real_script_answers_the_context_request(piano_roll_wired, monkeypatch):
+    """Both sides of the request, without a faked reply on either side.
+
+    The tool writes its request through the piano roll transport, the in-process
+    trigger runs the real script, and the key and meter come back through the real
+    converter. The project's meter is 3/4, so a measured meter is distinguishable
+    from the 4/4 assumption, and the arrangement holds two markers whose times
+    cannot be read, so no section may claim a bar position.
+    """
+    monkeypatch.setattr(
+        structure_tool, "get_connection", lambda: piano_roll_wired.connection, raising=False
+    )
+    piano_roll_wired.project.tsnum = 3
+    piano_roll_wired.project.tsden = 4
+    piano_roll_wired.project.markers = [(0, "Intro"), (16 * BAR_4_4, "Verse")]
+
+    result = structure_tool.structure_critique()
+
+    assert result["success"] is True
+    assert result["context"]["meter_read"] is True
+    assert result["context"]["time_signature"] == "3/4"
+    assert result["summary"]["beats_per_bar"] == 3.0
+    assert [section["name"] for section in result["sections"]] == ["Intro", "Verse"]
+    assert [section["start_bar"] for section in result["sections"]] == [None, None]
+    assert result["marker_times_source"] == "unavailable"
 
 
 def test_the_batch_carries_the_timebase_the_patterns_and_the_markers(wired, monkeypatch):
@@ -423,24 +450,100 @@ def test_the_report_uses_the_project_meter(wired, monkeypatch):
     assert result["patterns"][0]["divides_into_four_bar_blocks"] is True
 
 
-def test_markers_arrive_with_names_and_no_times(wired):
-    """The controller's marker reader reports a name and no time, on purpose.
+def test_system_getppq_is_the_primary_timebase(wired, monkeypatch):
+    """The batch reading wins over the PPQ that arrives with the context."""
+    monkeypatch.setattr(
+        structure_tool.piano_roll,
+        "send_request",
+        lambda request, **kwargs: dict(context_reply(), ppq=192),
+    )
+    result = structure_tool.structure_critique()
+    assert result["context"]["ppq"] == PPQ
+    assert result["context"]["ppq_source"] == "system.getPpq"
 
-    arrangement.getMarkerName is the only marker reader in the controller's API, so
-    when no other source reports a time a section's start and length are
-    unmeasurable. Saying that is the honest answer, so the report says it, names the
-    source it could not use, and does not claim a count mismatch it cannot see.
+
+def test_the_timebase_falls_back_to_the_piano_rolls_own_ppq(wired, monkeypatch):
+    """A batch without a timebase still measures, from the reading beside the context."""
+    original = wired.connection.send_command
+
+    def without_ppq(command, params=None, **kwargs):
+        reply = original(command, params, **kwargs)
+        for result in reply.get("results") or []:
+            result.pop("ppq", None)
+        return reply
+
+    monkeypatch.setattr(wired.connection, "send_command", without_ppq)
+    monkeypatch.setattr(
+        structure_tool.piano_roll,
+        "send_request",
+        lambda request, **kwargs: dict(context_reply(), ppq=192),
+    )
+
+    result = structure_tool.structure_critique()
+
+    assert result["context"]["ppq"] == 192
+    assert "own PPQ" in result["context"]["ppq_source"]
+    # 16 beats at 192 PPQ, so the tick count proves which reading measured it.
+    assert result["patterns"][0]["length_ticks"] == 16 * 192
+
+
+def test_the_observed_ppq_is_the_last_resort(wired, monkeypatch):
+    """Neither reading arrived, so the value observed on live FL is named as assumed."""
+    original = wired.connection.send_command
+
+    def without_ppq(command, params=None, **kwargs):
+        reply = original(command, params, **kwargs)
+        for result in reply.get("results") or []:
+            result.pop("ppq", None)
+        return reply
+
+    monkeypatch.setattr(wired.connection, "send_command", without_ppq)
+    context_without_ppq = context_reply()
+    del context_without_ppq["ppq"]
+    monkeypatch.setattr(
+        structure_tool.piano_roll,
+        "send_request",
+        lambda request, **kwargs: context_without_ppq,
+    )
+
+    result = structure_tool.structure_critique()
+
+    assert result["context"]["ppq"] == structure.DEFAULT_PPQ
+    assert "assumed 96" in result["context"]["ppq_source"]
+    assert result["context"]["meter_read"] is True
+
+
+def test_markers_arrive_with_names_and_no_times(wired):
+    """The arrangement is the source of marker names and of the marker count.
+
+    arrangement.getMarkerName is the only marker reader in the controller's API, and
+    the piano roll's own accessors report zero markers on this build, so every marker
+    time is unavailable. Saying that is the honest answer, so the report says it and
+    does not invent a bar position.
     """
     wired.project.markers = [(0, "Intro"), (16 * BAR_4_4, "Verse")]
     result = structure_tool.structure_critique()
     assert [section["name"] for section in result["sections"]] == ["Intro", "Verse"]
+    assert result["summary"]["marker_count"] == 2
     assert result["sections"][0]["ticks"] is None
     assert result["sections"][0]["start_bar"] is None
     assert result["sections"][0]["length_bars"] is None
     assert result["marker_times_source"] == "unavailable"
     observed = {observation["kind"] for observation in result["observations"]}
-    assert "marker_times_unreadable" in observed
-    assert "marker_count_mismatch" not in observed
+    assert observed == {"marker_times_unreadable"}
+
+
+def test_the_unreadable_finding_carries_the_measured_reason(wired):
+    """The sentence names both measurements, so a later session has the evidence."""
+    wired.project.markers = [(0, "Intro")]
+    result = structure_tool.structure_critique()
+    finding = {
+        observation["kind"]: observation for observation in result["observations"]
+    }["marker_times_unreadable"]
+    assert finding["severity"] == "informational"
+    assert "the controller's API has no function that reads one" in finding["detail"]
+    assert "report zero markers on this build" in finding["detail"]
+    assert result["summary"]["problem_count"] == 0
 
 
 def test_an_unreadable_meter_is_stated_and_four_four_is_used(wired, monkeypatch):
@@ -461,6 +564,7 @@ def test_no_markers_is_informational_not_an_error(wired):
     result = structure_tool.structure_critique()
     assert result["success"] is True
     assert result["sections"] == []
+    assert result["marker_times_source"] == "not_needed"
     assert any(
         observation["kind"] == "no_structure" for observation in result["observations"]
     )

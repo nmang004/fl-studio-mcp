@@ -13,12 +13,15 @@ never divided by the timebase: sixteen beats read as sixteen ticks would report 
 four bar pattern as a sixteenth of a bar. A marker's time is in ticks because it
 sits on the transport's timeline, so it is divided by the PPQ and then by the meter.
 
-A marker's time arrives from the piano roll, not from the arrangement. The controller
-sandbox has no function that reads one, and `arrangement.getMarkerName` is its only
-marker reader, so the names and the count come from the arrangement and the times come
-from `flpianoroll.score`. `merge_marker_times` is where the two are put together, and
-it refuses to guess: a marker the two sources do not both cover gets no time, and a
-count that disagrees is reported as its own finding.
+A marker's time is readable nowhere, and this module does not pretend otherwise. The
+controller's API has no function that reads one, and `arrangement.getMarkerName` is
+its only marker reader, so the arrangement is the source of marker names and of the
+marker count while every time it reports is None. The piano roll's own accessors were
+measured on live FL Studio 2026 build 5406 and report zero markers for a project
+whose arrangement holds three, so they are a silent no-op rather than a second
+source. Nothing here fills a time in: `sections` reports None for a position it was
+not given, because a bar number nobody measured is the failure this module exists to
+avoid.
 
 The meter is an argument rather than a four. Four bars of 3/4 is twelve beats, which
 is the kind of arithmetic that has been wrong in this project before, so every
@@ -48,103 +51,23 @@ FOUR_BAR_BLOCKS = 4.0
 # a real finding and stays one.
 TOLERANCE = 1e-9
 
-# Where the section times in a report came from, and how the two sources disagreed
-# when they did. Machine readable, because a caller filtering findings should not have
-# to parse the sentence beside them. `not_needed` is the one case where there is
-# nothing to time: an arrangement with no markers has no section start to measure.
-TIMES_FROM_PIANO_ROLL = "piano_roll"
+# Whether a report had any marker times to work with. Machine readable, because a
+# caller filtering findings should not have to parse the sentence beside them.
+# `unavailable` is the only answer a project with markers can get on this build: no
+# marker time is readable in either sandbox. `not_needed` is the other case, an
+# arrangement with no markers, which has no section start to measure at all.
 TIMES_UNAVAILABLE = "unavailable"
-TIMES_MISMATCH = "mismatch"
 TIMES_NOT_NEEDED = "not_needed"
-
-
-def merge_marker_times(
-    markers: list[dict],
-    piano_roll_markers: list[dict] | None,
-    piano_roll_error: str | None = None,
-) -> dict:
-    """The arrangement's markers, timed from the piano roll where the two agree.
-
-    The arrangement is the source of names and of the marker count, because it is the
-    arrangement. The piano roll sandbox is the source of times, because the
-    controller's API has no function that reads a marker's time at all: its only
-    marker reader is `arrangement.getMarkerName`.
-
-    The two lists are matched by index, which is the only correspondence either side
-    offers. Nothing in either reply proves the two views line up: they are two
-    sandboxes that cannot see each other, and one of them may count markers the other
-    does not show, for instance a time signature marker. So a count that disagrees is
-    reported rather than smoothed over, and a marker with no counterpart gets no time
-    rather than a nearby one.
-
-    Args:
-        markers: Entries from `arrangement.getMarkers`, each with an index, a name and
-            a time that is None.
-        piano_roll_markers: Entries from the piano roll's `get_markers` reply, each
-            with an index, a name and a time in ticks, or None when the piano roll
-            reported no marker list at all.
-        piano_roll_error: Why the piano roll reported no list, when it said.
-
-    Returns:
-        markers: One entry per arrangement marker, in the arrangement's order, with
-            index, name and a time in ticks when both sources have an entry at that
-            index with a readable time, and None when they do not. A time is never
-            invented for an entry only one side has.
-        source: `piano_roll` when the times were read, `unavailable` when none could
-            be, `mismatch` when the two sources counted a different number of markers,
-            and `not_needed` when the arrangement has no markers to time.
-        detail: A sentence naming what went wrong, for `unavailable` and `mismatch`,
-            and None otherwise.
-        piano_roll_marker_count: How many markers the piano roll reported, or None
-            when it reported no list. Carried so a finding can state both counts.
-    """
-    merged = _merge_in_index_order(markers, piano_roll_markers)
-    read = sum(1 for entry in merged if entry["time"] is not None)
-
-    if piano_roll_markers is None:
-        if not markers:
-            source, detail = TIMES_NOT_NEEDED, None
-        else:
-            source = TIMES_UNAVAILABLE
-            detail = _unavailable_detail(piano_roll_error)
-        count = None
-    elif len(piano_roll_markers) != len(markers):
-        source = TIMES_MISMATCH
-        detail = (
-            f"The arrangement reports {len(markers)} marker(s) and the piano roll "
-            f"reports {len(piano_roll_markers)}, so only the {read} marker(s) the two "
-            "agree on were given a time. The rest have no measured start or length."
-        )
-        count = len(piano_roll_markers)
-    elif not markers:
-        source, detail, count = TIMES_NOT_NEEDED, None, len(piano_roll_markers)
-    elif read == 0:
-        source = TIMES_UNAVAILABLE
-        detail = (
-            f"The piano roll reported {len(piano_roll_markers)} marker(s) and a "
-            "readable time for none of them, so no section has a measured start or "
-            "length."
-        )
-        count = len(piano_roll_markers)
-    else:
-        source, detail, count = TIMES_FROM_PIANO_ROLL, None, len(piano_roll_markers)
-
-    return {
-        "markers": merged,
-        "source": source,
-        "detail": detail,
-        "piano_roll_marker_count": count,
-    }
 
 
 def sections(markers: list[dict], ppq: int, beats_per_bar: float) -> list[dict]:
     """Turn markers into sections, each measured to the next marker.
 
     Args:
-        markers: Entries with a name and a time in ticks. The controller's reader
-            gives a name and no time, and `merge_marker_times` fills the time in from
-            the piano roll where one could be read. A time of None means no source
-            reported one, and a section with no time reports None rather than a guess.
+        markers: Entries with a name and a time in ticks. The arrangement's reader
+            gives a name and no time, and no other sandbox can read one on this
+            build, so a time of None is what the tool actually passes and every
+            section reports None rather than a guess.
         ppq: Ticks per quarter note, from `system.getPpq`. 96 on live FL Studio.
         beats_per_bar: From the project's meter. A 4/4 bar is 4.0 and a 3/4 bar is
             3.0, and a 6/8 bar is 3.0 because six eighths are three quarters.
@@ -216,7 +139,6 @@ def critique(
     context: dict,
     patterns: list[dict],
     markers: list[dict],
-    marker_times: dict | None = None,
 ) -> dict:
     """Sections, pattern lengths, and every arithmetic observation about them.
 
@@ -226,13 +148,10 @@ def critique(
             into the summary so a caller can see what the numbers were measured
             against.
         patterns: Entries from `patterns.getAll`, whose length is in beats.
-        markers: Entries that are already timed, as `merge_marker_times` returns
-            them, each with an index, a name and a time in ticks or None. A time of
-            None means no source reported one, and nothing here fills it in.
-        marker_times: The provenance `merge_marker_times` returned, which carries
-            where the times came from and the sentence naming what went wrong. It is
-            optional so a caller that already knows its markers are timed can skip
-            it, and then no source is claimed.
+        markers: Entries as `arrangement.getMarkers` returns them, each with an
+            index, a name and a time that is None on this build. Nothing here fills
+            a time in, and a marker with no time produces an informational finding
+            instead of a bar position.
 
     Returns:
         sections, patterns, observations and summary, with the problems first. One
@@ -242,8 +161,6 @@ def critique(
     beats_per_bar = _meter(context.get("beats_per_bar"))
     ppq = _timebase(context.get("ppq"))
     signature = _signature(context, beats_per_bar)
-    marker_sources = dict(marker_times or {})
-    source = marker_sources.get("source")
     section_list = sections(markers, ppq, beats_per_bar)
     pattern_list = pattern_report(patterns, ppq, beats_per_bar)
 
@@ -260,29 +177,12 @@ def critique(
             ),
         })
     else:
-        if source == TIMES_MISMATCH:
-            # Graded as a problem rather than an informational note because a caller
-            # that reads past it would take bar numbers from a partial match. The
-            # fault is in the reading rather than in the song, and the sentence says
-            # which, so the grade is about what it costs to ignore, not about blame.
-            problems.append({
-                "kind": "marker_count_mismatch",
-                "severity": PROBLEM,
-                "controller_marker_count": len(markers),
-                "piano_roll_marker_count": marker_sources.get("piano_roll_marker_count"),
-                "detail": marker_sources.get("detail") or (
-                    f"The arrangement reports {len(markers)} marker(s) and the piano "
-                    "roll a different number, so the sections below are the "
-                    "arrangement's markers with only a partial set of times."
-                ),
-            })
-
         unreadable = [entry for entry in markers if _tick(entry.get("time")) is None]
         if unreadable:
             informational.append({
                 "kind": "marker_times_unreadable",
                 "severity": INFORMATIONAL,
-                "detail": _unreadable_times_detail(len(unreadable), len(markers), marker_sources),
+                "detail": _unreadable_times_detail(len(unreadable), len(markers)),
             })
 
     for section in section_list:
@@ -359,11 +259,6 @@ def critique(
             "beats_per_bar": beats_per_bar,
             "time_signature": signature,
             "key": context.get("key"),
-            # Where the section times came from, and how many markers the piano roll
-            # reported beside the arrangement's count. Both are here so a caller can
-            # tell a measured section from an unmeasured one without parsing prose.
-            "marker_times_source": source,
-            "piano_roll_marker_count": marker_sources.get("piano_roll_marker_count"),
             "note": (
                 "Every observation is arithmetic over the marker times and pattern "
                 "lengths FL reported. None of it is a judgement about the song."
@@ -372,77 +267,22 @@ def critique(
     }
 
 
-def _merge_in_index_order(
-    markers: list[dict], piano_roll_markers: list[dict] | None
-) -> list[dict]:
-    """The arrangement's markers, each with a time where the piano roll has one.
+def _unreadable_times_detail(unreadable: int, total: int) -> str:
+    """The sentence for markers whose time cannot be read anywhere.
 
-    A marker's own index is used, and its position in the list only when the entry
-    does not carry one: both replies number markers from zero, and a reply without an
-    index still has an order.
+    Both halves of the reason are measurements rather than assumptions. The
+    controller's API has no function that reads a marker's time, `arrangement`
+    exposes only `getMarkerName`, and the piano roll's `markerCount` and `getMarker`
+    were run live on FL Studio 2026 build 5406 and reported zero markers for a
+    project whose arrangement holds three. A silent zero is not a measurement of no
+    markers, so nothing here treats it as one.
     """
-    if piano_roll_markers is None:
-        return [_timed(marker, position, None) for position, marker in enumerate(markers)]
-
-    by_index = {}
-    for position, entry in enumerate(piano_roll_markers):
-        if isinstance(entry, dict):
-            by_index[_marker_index(entry, position)] = entry
-
-    merged = []
-    for position, marker in enumerate(markers):
-        entry = by_index.get(_marker_index(marker, position))
-        merged.append(_timed(marker, position, _tick(entry.get("time")) if entry else None))
-    return merged
-
-
-def _timed(marker: dict, position: int, ticks: int | None) -> dict:
-    """One merged marker: the arrangement's index and name, the piano roll's time."""
-    return {
-        "index": marker.get("index") if marker.get("index") is not None else position,
-        "name": marker.get("name"),
-        "time": ticks,
-    }
-
-
-def _marker_index(entry: dict, position: int) -> int:
-    """The index a reply entry carries, falling back to where it sits in the list."""
-    index = entry.get("index")
-    if isinstance(index, bool) or not isinstance(index, int):
-        return position
-    return index
-
-
-def _unavailable_detail(piano_roll_error: str | None) -> str:
-    """Why no marker time could be read, for the observation that says so."""
-    if piano_roll_error:
-        reason = str(piano_roll_error)
-    else:
-        reason = "it reported no marker list at all"
     return (
-        "The piano roll is the only sandbox that can read a marker's time, and it did "
-        f"not: {reason}. The controller's arrangement reader returns a marker's name "
-        "and no time, because the API has no function that reads one."
-    )
-
-
-def _unreadable_times_detail(unreadable: int, total: int, marker_times: dict) -> str:
-    """The sentence for markers whose time no source reported.
-
-    The provenance sentence is carried through rather than restated, so the reason
-    the times are missing is the same text wherever it appears.
-    """
-    detail = (
         f"{unreadable} of {total} marker(s) have no readable time, so those sections "
-        "have no measured start or length."
-    )
-    reason = marker_times.get("detail")
-    if reason:
-        return f"{detail} {reason}"
-    return (
-        f"{detail} The controller reads a marker's name through "
-        "arrangement.getMarkerName and has no function that reads its time, and the "
-        "piano roll did not report a time for these markers."
+        "have no measured start or length. No marker time is readable anywhere: the "
+        "controller's API has no function that reads one, and the piano roll's marker "
+        "accessors report zero markers on this build, so neither sandbox can place a "
+        "marker on the timeline."
     )
 
 
