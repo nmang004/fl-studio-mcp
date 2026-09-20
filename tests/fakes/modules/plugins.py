@@ -79,7 +79,9 @@ def build(project: FakeProject) -> ModuleType:
             project.channel(index)
         if not isValid(index, slotIndex):
             return 0
-        return PARAM_COUNT
+        # Per plugin, because a plugin update can change how many parameters exist and
+        # a preset written before it then refers to parameters that are gone.
+        return project.plugin_param_counts.get((index, slotIndex), PARAM_COUNT)
 
     def getParamName(
         paramIndex: int,

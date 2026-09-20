@@ -206,6 +206,9 @@ class FakeProject:
         # Parameter indices whose name reads back empty, the way an unused VST
         # parameter does.
         self.plugin_unnamed: set[int] = set()
+        # How many parameters each loaded plugin reports, when it is not the
+        # default. A plugin update can change this under a stored preset.
+        self.plugin_param_counts: dict[tuple[int, int], int] = {}
         # Every call whose argument order this suite has been wrong about before.
         self.plugin_calls: list[tuple[str, dict]] = []
         self.arrangement_selection = (0, 0)

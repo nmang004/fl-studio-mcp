@@ -524,6 +524,21 @@ against the wrong piano roll.
 | `fl_undo_history` | Report how deep the undo history is |
 
 
+### Plugin Preset Library
+
+| Tool | Description |
+|------|-------------|
+| `fl_save_plugin_preset` | Save a plugin's current sound as a named preset |
+| `fl_find_plugin_presets` | Search the preset library by name, plugin or tag |
+| `fl_recall_plugin_preset` | Put a stored preset back, reporting before it writes |
+| `fl_morph_plugin_preset` | Blend two presets and write the result |
+
+There is no preset save or load in FL's scripting API: `plugins` offers a preset count and next and previous, and nothing else. So a preset here is every parameter read, stored as JSON, and written back. That also means a preset is portable between projects, which FL's own presets are not.
+
+A parameter's value is normalised 0.0 to 1.0, because that is the only form the API exposes. Blending two presets is therefore arithmetic in that range: **a switch snaps somewhere in the middle and a frequency control is not linear there**, so a morph is a starting point rather than a guaranteed halfway sound. Parameters that exist in only one of the two presets are kept as they are there and named in the reply, because there is no midpoint between a value and no value. Parameters the plugin no longer has are reported rather than written into whatever now sits at that index.
+
+Recall reports the difference and writes nothing until you pass `apply=True`, and then the whole thing goes through one batch, so a single undo reverses it.
+
 ## Project Snapshots
 
 | Tool | Description |
