@@ -369,8 +369,14 @@ Structure critique, after it learned to read marker times from the piano roll sa
     are a silent no-op on this build, which is the failure mode this API is known for,
     and the feature should be deleted rather than carried.
 
-  Until that runs, treat marker times as plumbing that executes and reports honestly,
-  not as a feature that reads the arrangement.
+  **The experiment was run, and it is the second branch.** A time signature marker named
+  `comptest` was added, the controller then reported three markers (`comptest`, `test1`,
+  `test2`), and the piano roll request answered `success: true` with `markers_error: null`
+  and `markers: []`. The accessors exist, raise nothing, and report zero: they are a
+  **silent no-op on this build**. Marker times are unreadable in both sandboxes, so the
+  marker-time plumbing is being removed rather than carried, and
+  `fl_structure_critique` keeps the honest report it already gives, that section lengths
+  are unavailable because no marker time can be read anywhere.
 
 Could not be run:
 
