@@ -1145,18 +1145,55 @@ git commit -m "Document the curation tools and record the live runs"
 
 ---
 
+## Where this plan was wrong
+
+Written while the phase was still running, because these are the parts a later reader
+should not have to rediscover.
+
+| The plan said | What happened |
+| --- | --- |
+| Task F1's plan named no route, and the roadmap suggested PyFLP | The feasibility study measured that PyFLP 2.2.1 cannot read tempo, title or time signature from FL Studio 2026 files: the size rule it implements misreads the 128 to 191 event band, and it still lands on EOF, so it looks correct. It is also GPL-3.0 against this MIT repository, dormant since 2023, and pulls four dependencies. The plan now ships a hand written reader and `docs/spikes/2026-09-19-flp-format.md` records why |
+| The snapshot is one batch | It is two small count reads plus the batch, because the batch has to be built before it is sent and the per-object commands need to know how many objects there are. Still a fixed cost, no longer a single round trip, and the reply reports the count |
+| Sample metadata would give durations | The recon found FL's own factory `.wav` files are Ogg Vorbis inside a RIFF container, and the second most common format is WavPack, which the standard library also cannot read. Most of the real library therefore has no measurable duration, so the honest blank plus a reason became the centre of Task E1 rather than an edge case |
+| Riffs, and then E1 and E2, were four and two commits | They landed as two and one. The separation that mattered was between the pure arithmetic and the tools, not between neighbouring verbs |
+| Browser integration would search and audition | There is no browser search of any kind in the API, and the stub distrusts `navigateBrowser`. Only the focused node and audition ship, and the tool says it plays whatever is highlighted because it cannot choose a file |
+| Phase 3's claim that patterns can be created | `patterns.findFirstNextEmptyPat` froze FL Studio 2026 build 5406 twice on 2026-09-19, once with flags 0 and once with the prompt suppressed and the `None` return no longer used. Both freezes cost the open session. Pattern creation is now refused by the controller, with the corrected call kept behind a constant and tested, and the roadmap and README record the finding |
+| Nothing about keyword arguments | Passing plugin arguments by name, which is what the four argument-order defects argued for, turned out not to be universally safe: a parameter page called by keyword returned no parameters and reported success, which means something raised where the exception text only reaches FL's script output window. A probe action was added to ask this build what each function accepts, and the answer decides the final form of those calls |
+
+Two of those are the phase's own lesson repeating: the fake and the code agreed with each
+other, and only a live run could tell. The pattern freeze is the sharper version, because
+the test double had the wrong signature and the wrong return type and the suite was green.
+
 ## Phase 6 exit criteria
 
-- [ ] All eight roadmap features ship, each with at least one tool, tests, and a README
-      row.
-- [ ] Nothing in the phase writes outside the library root, and a test proves an unsafe
-      record id cannot escape it.
-- [ ] The journal records every mutating command with its outcome and never breaks the
+- [x] The library root exists, with plain JSON records and a safe record id rule, and a
+      test proves an unsafe id cannot escape it.
+- [x] The journal records both edit paths with their outcomes and never breaks the
       command it records, and `FL_STUDIO_MCP_JOURNAL=0` disables it.
-- [ ] The four plugin argument-order defects are fixed, with tests that fail against
-      the old ordering, and every `plugins.*` call passes its arguments by name.
-- [ ] Plugin parameter reads are paged and report the total, so a 4240 parameter VST is
+- [x] The riff library saves, searches and recalls, with transposition and clamping as
+      pure arithmetic.
+- [x] Snapshot capture, diff and restore exist as three tools, and the restore reports
+      what it cannot put back.
+- [x] The four plugin argument-order defects are fixed, and every `plugins.*` call in
+      the controller passes its arguments by name, with a source level test refusing a
+      positional call.
+- [x] Plugin parameter reads are paged and report the total, so a 4240 parameter VST is
       no longer truncated at 50 in silence.
+- [x] The preset library saves, searches, recalls and blends, and the blend names what
+      it could not blend.
+- [x] Sample search reads headers rather than trusting extensions, and reports a reason
+      instead of a guessed duration.
+- [x] The `.flp` header reader exists and refuses a walk that does not land exactly at
+      the end of the payload.
+- [x] Pattern slot creation is refused, with the two freezes recorded in the roadmap,
+      the README and the tool description.
+- [ ] All eight roadmap features ship, each with at least one tool, a README row, and
+      tests. Structure critique, templates, browser audition and the project index tool
+      were still in progress when this was written.
+- [ ] The live runs are recorded in `docs/SMOKE_TEST.md`, including the two freezes and
+      everything that could not be run.
+- [ ] `pytest` green and `ruff check .` clean with no FL Studio running, and a clean
+      clone installs with `uv sync --dev --locked` and passes.
 - [ ] A riff can be saved, found and recalled transposed into the project's key, with
       clamped notes counted and reported.
 - [ ] A snapshot can be taken, diffed against the live project, and restored through

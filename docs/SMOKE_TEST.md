@@ -144,6 +144,49 @@ is the only place the two are compared.
       balance you care about. It has deliberately not been run against a real project
       in this repo.
 
+## Curation, Phase 6
+
+Most of Phase 6 is files on disk, so tests cover it. These items are the parts only a
+human can judge: whether a recalled riff is the riff, whether a restored mix is the
+mix, and whether the library is where you can find it.
+
+- [ ] `fl_save_riff` on a phrase you know, then `fl_find_riffs` by tag and by key, then
+      `fl_recall_riff` into a new pattern and listen. Catches a round trip that keeps
+      the notes but loses the groove, which no test can hear.
+- [ ] Recall the same riff into a project in another key and confirm it lands in that
+      key and still sounds like the phrase rather than a transposed mistake.
+- [ ] `fl_snapshot_project`, move two faders and rename a track, then
+      `fl_project_changes` and confirm the report names exactly those three things.
+      Catches a diff that reports float noise as changes, which would make it useless.
+- [ ] `fl_restore_snapshot(apply=True)` and confirm the faders and the name come back,
+      then press Ctrl+Z once and confirm the whole restore reverses. Catches a restore
+      that is not one undo step.
+- [ ] `fl_save_plugin_preset` on a synth you know, move three controls, recall it, and
+      listen. Catches a preset that restores numbers but not the sound, which is the
+      only thing that matters about it.
+- [ ] `fl_morph_plugin_preset` between two presets at 0.5, and confirm the result is a
+      usable in-between sound rather than silence or a stuck switch.
+- [ ] `fl_find_samples` for a word you know is in your library and confirm the paths
+      are ones you recognise, then highlight one of them in FL's browser and run
+      `fl_audition_sample`. Catches a search that only finds factory content, and an
+      audition that plays something other than what is highlighted.
+- [ ] Confirm a `.wav` in the results that FL's own pack ships is reported with no
+      duration and a reason, because it is Ogg Vorbis in a RIFF container. A duration
+      there would be a number somebody made up.
+- [ ] `fl_index_projects` on your projects folder and confirm the tempos and plugin
+      names match what FL shows when you open one. Catches a reader that walks the file
+      wrongly and still returns plausible numbers, which is how the published rule for
+      this format fails.
+- [ ] `fl_structure_critique` on a project with markers and confirm the sections match
+      what you drew, including one marker deliberately off the bar line.
+- [ ] `fl_apply_template` with `apply=False`, read the plan, then `apply=True`, look at
+      FL, and undo once. Confirm a track you had already named was left alone.
+- [ ] `fl_journal` after a session of edits and confirm it lists what you watched the
+      server do, in order, with nothing that was only a question.
+- [ ] Confirm `fl_create_pattern` refuses and explains, and that creating a pattern by
+      hand and selecting it with `fl_set_pattern(select=True)` works. This call froze FL
+      Studio twice in testing, so it must never run.
+
 ## Piano roll path
 
 This is the only path that nothing but a human can test: it needs the keystroke,
