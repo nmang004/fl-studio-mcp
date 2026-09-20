@@ -26,8 +26,13 @@ def build(project: FakeProject) -> ModuleType:
 
         Nothing is loaded by default, so this is False until a test says
         otherwise. That keeps "cannot load plugins" visible rather than implied.
+
+        A mixer slot is addressed by track index with slotIndex >= 0, and a track is
+        not a channel, so the channel check belongs to the channel rack case only.
+        Requiring one for every call made every mixer slot raise.
         """
-        project.channel(index)
+        if slotIndex < 0:
+            project.channel(index)
         return (index, slotIndex) in project.plugin_params or (
             slotIndex == -1 and (index, -1) in project.plugin_params
         )
@@ -35,7 +40,8 @@ def build(project: FakeProject) -> ModuleType:
     def getPluginName(
         index: int, slotIndex: int = -1, useGlobalIndex: bool = False
     ) -> str:
-        project.channel(index)
+        if slotIndex < 0:
+            project.channel(index)
         if not isValid(index, slotIndex):
             return ""
         return project.plugin_names.get((index, slotIndex), "Fake Plugin")
@@ -43,7 +49,11 @@ def build(project: FakeProject) -> ModuleType:
     def getParamCount(
         index: int, slotIndex: int = -1, useGlobalIndex: bool = False
     ) -> int:
-        project.channel(index)
+        # A mixer slot is addressed by track index with slotIndex >= 0, and an empty
+        # slot answers zero rather than raising: the real API asks about every slot.
+        # Requiring a channel first made every mixer slot look like a broken channel.
+        if slotIndex < 0:
+            project.channel(index)
         if not isValid(index, slotIndex):
             return 0
         return PARAM_COUNT
@@ -54,7 +64,8 @@ def build(project: FakeProject) -> ModuleType:
         slotIndex: int = -1,
         useGlobalIndex: bool = False,
     ) -> str:
-        project.channel(index)
+        if slotIndex < 0:
+            project.channel(index)
         if not 0 <= paramIndex < PARAM_COUNT:
             raise IndexError(f"parameter {paramIndex} out of range")
         return f"Param {paramIndex}"
@@ -65,7 +76,8 @@ def build(project: FakeProject) -> ModuleType:
         slotIndex: int = -1,
         useGlobalIndex: bool = False,
     ) -> float:
-        project.channel(index)
+        if slotIndex < 0:
+            project.channel(index)
         if not 0 <= paramIndex < PARAM_COUNT:
             raise IndexError(f"parameter {paramIndex} out of range")
         return _params(project, index, slotIndex).get(paramIndex, 0.5)
@@ -85,7 +97,8 @@ def build(project: FakeProject) -> ModuleType:
         slotIndex: int = -1,
         useGlobalIndex: bool = False,
     ) -> None:
-        project.channel(index)
+        if slotIndex < 0:
+            project.channel(index)
         if not 0 <= paramIndex < PARAM_COUNT:
             raise IndexError(f"parameter {paramIndex} out of range")
         _params(project, index, slotIndex)[paramIndex] = clamp(value, 0.0, 1.0)

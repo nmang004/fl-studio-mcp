@@ -524,6 +524,20 @@ against the wrong piano roll.
 | `fl_undo_history` | Report how deep the undo history is |
 
 
+## Project Snapshots
+
+| Tool | Description |
+|------|-------------|
+| `fl_snapshot_project` | Save the project's settings so changes can be seen and undone |
+| `fl_project_changes` | What changed, live against a snapshot or between two of them |
+| `fl_restore_snapshot` | Put the settings from a snapshot back, reporting before it moves anything |
+
+A snapshot is FL's undo taken further out: it is a JSON file in the library, so it survives a restart, it can be diffed, and it answers "what changed since yesterday" in a way the undo history cannot. It is captured in one batch, so the cost does not grow with the number of tracks.
+
+**A snapshot holds settings, not material.** The notes live in the piano roll's own scripting sandbox and the playlist has no clip API at all, so neither is in a snapshot. A restore moves values back and deletes nothing: something that appeared since the snapshot is reported rather than removed, and something that has gone is reported rather than recreated. Every setting it cannot write back is listed with a reason instead of being silently left different.
+
+`fl_restore_snapshot` reports first. It only makes the moves when you pass `apply=True`, and then they go through one batch, so a single undo reverses the whole restore.
+
 ### Riff Library
 
 | Tool | Description |

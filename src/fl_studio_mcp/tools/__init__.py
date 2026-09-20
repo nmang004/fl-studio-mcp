@@ -16,6 +16,7 @@ from fl_studio_mcp.tools.riffs import register_riff_tools
 from fl_studio_mcp.tools.routing import register_routing_tools
 from fl_studio_mcp.tools.samples import register_sample_tools
 from fl_studio_mcp.tools.score import register_score_tools
+from fl_studio_mcp.tools.snapshots import register_snapshot_tools
 from fl_studio_mcp.tools.tempo import register_tempo_tools
 from fl_studio_mcp.tools.transport import register_transport_tools
 
@@ -38,4 +39,5 @@ __all__ = [
     "register_journal_tools",
     "register_riff_tools",
     "register_sample_tools",
+    "register_snapshot_tools",
 ]
