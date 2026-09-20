@@ -295,6 +295,31 @@ Caused during this phase, and since fixed:
   corrected call kept behind one constant and tested, and the roadmap and README record
   the finding.
 
+Passed later in the same phase, the four checks that were test-only until then:
+
+- `fl_index_projects` on the real projects folder: five autosaved projects found,
+  every one read as 130.0 BPM and 4/4 with its channel names, status `ok`.
+- The browser block of `fl_get_ui_state`: nothing focused reported as `None` rather than
+  an empty string, file type `-1`, auto hide `False`, and no problems from the guarded
+  reads.
+- A preset round trip on channel 4: 42 parameters saved, one moved to 0.9, the recall
+  reported exactly one change, applied it through one batch, and the parameter came back
+  to 0.5 with its display string intact.
+- The mixing template: 21 moves planned, applied as one batch, and the inserts came back
+  named Drums, Bass, Keys and so on.
+
+Found during that run, and worth knowing:
+
+- **One undo did not reverse the 21 command template batch.** `fl_undo(steps=1)`
+  reported success and the names were still changed afterwards, so the "one undo
+  reverses the whole pass" wording in the batch tools is optimistic for a large batch.
+  The reliable way back is `fl_restore_snapshot`, which put all 21 settings back,
+  names and routing included, and is what was used here. The wording was left alone
+  rather than rewritten in a hurry, so treat any claim about a single undo as unverified
+  above a handful of commands.
+- `fl_audition_sample` is still unrun: nothing was highlighted in FL's browser, and the
+  tool correctly refused to claim it had played something.
+
 Could not be run:
 
 - Riff recall into a pattern, because the only pattern's piano roll holds the
